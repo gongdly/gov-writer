@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, FileText, Megaphone, Search, Eye, RotateCw, Trash2,
-  Loader2, AlertCircle, ChevronLeft, ChevronRight, X, Copy, Check,
+  Loader2, AlertCircle, ChevronLeft, ChevronRight, X, Copy, Check, Settings,
 } from 'lucide-react'
 
 interface DraftListItem {
@@ -109,7 +109,13 @@ export default function HistoryPage() {
             <FileText className="w-4 h-4 text-slate-600" />
             <h1 className="text-base font-semibold text-slate-900">작성 이력</h1>
           </div>
-          <div className="w-12" />
+          <Link
+            to="/settings"
+            title="API 키 설정"
+            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
         </div>
       </header>
 

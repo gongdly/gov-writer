@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowLeft, Users, Plus, Edit2, Trash2, Loader2, AlertCircle, CheckCircle2, X,
+  ArrowLeft, Users, Plus, Edit2, Trash2, Loader2, AlertCircle, CheckCircle2, X, Settings,
 } from 'lucide-react'
 
 interface Persona {
@@ -133,7 +133,13 @@ export default function PersonasPage() {
             <Users className="w-4 h-4 text-slate-600" />
             <h1 className="text-base font-semibold text-slate-900">페르소나 관리</h1>
           </div>
-          <div className="w-12" />
+          <Link
+            to="/settings"
+            title="API 키 설정"
+            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
         </div>
       </header>
 

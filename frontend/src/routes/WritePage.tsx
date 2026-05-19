@@ -2,10 +2,11 @@ import { useState, useRef } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import {
   ArrowLeft, Megaphone, Search, Loader2, AlertCircle, X,
-  Upload, Sparkles, Plus, ChevronLeft, ChevronRight,
+  Upload, Sparkles, Plus, ChevronLeft, ChevronRight, Settings,
 } from 'lucide-react'
 import { getActiveProvider, getStoredKey } from '../hooks/useLLMSettings'
 import SpeechWriter from './SpeechWriter'
+import ApiKeyBanner from '../components/ApiKeyBanner'
 
 type DocType = 'speech' | 'press'
 
@@ -111,11 +112,18 @@ function PressEditor() {
             </div>
             <h1 className="text-base font-semibold text-slate-900">보도자료 작성</h1>
           </div>
-          <div className="w-12" />
+          <Link
+            to="/settings"
+            title="API 키 설정"
+            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-6">
+        <ApiKeyBanner />
         {/* 단계 진행 */}
         <div className="mb-6 bg-white rounded-xl border border-slate-200 p-3">
           <div className="flex items-center justify-between">

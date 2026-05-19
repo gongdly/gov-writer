@@ -1,9 +1,10 @@
 import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowLeft, FileText, Upload, Sparkles, Loader2, AlertCircle, X,
+  ArrowLeft, FileText, Upload, Sparkles, Loader2, AlertCircle, X, Settings,
 } from 'lucide-react'
 import { getActiveProvider, getStoredKey } from '../hooks/useLLMSettings'
+import ApiKeyBanner from '../components/ApiKeyBanner'
 import {
   EVENT_TYPES, AUDIENCES, LENGTH_OPTIONS, SPEAKER_ROLES,
   SPEAKER_ROLE_LABEL,
@@ -276,23 +277,18 @@ export default function SpeechWriter() {
             </div>
             <h1 className="text-base font-semibold text-slate-900">말씀자료 작성</h1>
           </div>
-          <div className="w-12" />
+          <Link
+            to="/settings"
+            title="API 키 설정"
+            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+          >
+            <Settings className="w-4 h-4" />
+          </Link>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-6 py-8 space-y-5">
-        {!hasKey && (
-          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-900">
-              <p className="font-medium mb-1">LLM API 키가 필요합니다</p>
-              <p className="text-amber-800">
-                <Link to="/settings" className="underline font-medium">설정</Link>에서
-                Gemini 또는 Claude 키를 입력해주세요.
-              </p>
-            </div>
-          </div>
-        )}
+        <ApiKeyBanner />
 
         {/* 행사 계획서 (단일) */}
         <Section title="📎 행사 계획서 (선택)" description="업로드 시 AI가 본문에 참고합니다">
