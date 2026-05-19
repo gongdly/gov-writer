@@ -13,7 +13,7 @@ export default function PlaceholderPage({ title, phase }: Props) {
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
           <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
-            허브로
+            홈
           </Link>
         </div>
       </header>

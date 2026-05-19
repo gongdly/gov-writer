@@ -88,22 +88,53 @@ async def get_draft(draft_id: str) -> dict[str, Any] | None:
 async def list_drafts(
     *,
     doc_type: str | None = None,
+    search: str | None = None,
     limit: int = 50,
-) -> list[dict[str, Any]]:
-    """드래프트 목록 (최신순)."""
+    offset: int = 0,
+) -> dict[str, Any]:
+    """드래프트 목록 (최신순) + 총 개수.
+
+    Returns:
+        {"drafts": [...], "total": int}
+    """
     url = f"{_base_url()}/rest/v1/drafts"
     params: dict[str, Any] = {
-        "select": "id,doc_type,title,created_at,updated_at",
+        "select": "id,doc_type,title,form_data,created_at,updated_at",
         "order": "created_at.desc",
         "limit": limit,
+        "offset": offset,
     }
     if doc_type:
         params["doc_type"] = f"eq.{doc_type}"
+    if search and search.strip():
+        # 제목에서 검색 (URL encode는 httpx가 처리)
+        params["title"] = f"ilike.*{search.strip()}*"
 
+    headers = {**_headers(), "Prefer": "count=exact"}
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(url, params=params, headers=_headers())
+        resp = await client.get(url, params=params, headers=headers)
         resp.raise_for_status()
-        return resp.json()
+        rows = resp.json()
+        # 총 개수는 Content-Range 헤더의 마지막
+        cr = resp.headers.get("content-range", "")
+        total = 0
+        if "/" in cr:
+            try:
+                total = int(cr.split("/")[1])
+            except (ValueError, IndexError):
+                total = len(rows)
+        return {"drafts": rows, "total": total}
+
+
+async def delete_draft(draft_id: str) -> bool:
+    """드래프트 삭제."""
+    url = f"{_base_url()}/rest/v1/drafts"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.delete(
+            url, params={"id": f"eq.{draft_id}"}, headers=_headers()
+        )
+        resp.raise_for_status()
+        return True
 
 
 async def update_draft(

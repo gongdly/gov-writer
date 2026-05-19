@@ -109,7 +109,7 @@ export default function SettingsPage() {
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
-            허브로
+            홈
           </Link>
           <h1 className="text-base font-semibold text-slate-900">설정</h1>
           <div className="w-12" />

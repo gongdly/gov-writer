@@ -13,7 +13,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import rag_router, settings_router, press_router, speech_router
+from .api import (
+    rag_router, settings_router, press_router, speech_router,
+    drafts_router, personas_router,
+)
 from .config import get_settings
 
 logging.basicConfig(
@@ -27,7 +30,7 @@ settings = get_settings()
 app = FastAPI(
     title="gov-writer",
     description="행정문서 통합 작성기",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 if not settings.is_production:
@@ -61,13 +64,15 @@ app.include_router(rag_router)
 app.include_router(settings_router)
 app.include_router(press_router)
 app.include_router(speech_router)
+app.include_router(drafts_router)
+app.include_router(personas_router)
 
 
 @app.get("/health")
 async def health() -> dict:
     return {
         "status": "ok",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "environment": settings.ENVIRONMENT,
     }
 
@@ -77,14 +82,14 @@ async def info() -> dict:
     """환경 정보. LLM 키 상태는 노출 안 함 (사용자 localStorage 관리)."""
     return {
         "name": "gov-writer",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "environment": settings.ENVIRONMENT,
         "features": {
             "supabase_configured": settings.has_supabase,
             "policy_briefing_configured": settings.has_policy_briefing,
             "rag_sync_secret_configured": bool(settings.RAG_SYNC_SECRET),
         },
-        "phase": "Phase 4 — 말씀자료 작성기 완료",
+        "phase": "Phase 5 — 이력·페르소나 완료",
         "security_model": {
             "llm_keys": "client_localStorage",
             "policy_briefing": "server_only",
