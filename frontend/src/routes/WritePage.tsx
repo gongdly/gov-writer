@@ -785,6 +785,8 @@ function PreviewStep({
   onBack: () => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [downloading, setDownloading] = useState<'md' | 'hwpx' | null>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
 
   const fullText = [
     form.title,
@@ -807,6 +809,55 @@ function PreviewStep({
       setTimeout(() => setCopied(false), 2000)
     } catch {
       alert('복사 실패. 텍스트 직접 선택하여 복사해주세요.')
+    }
+  }
+
+  const handleDownload = async (format: 'md' | 'hwpx') => {
+    setDownloadError(null)
+    setDownloading(format)
+    try {
+      const res = await fetch(`/api/download/press/${format}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: form.title,
+          subtitle: form.subtitle,
+          lead_paragraph: form.lead_paragraph,
+          body_paragraphs: form.body_paragraphs,
+          department: form.department,
+          contact_person: form.contact_person,
+          contact_phone: form.contact_phone,
+          distribute_date: form.distribute_date,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.text()
+        throw new Error(err || `${format.toUpperCase()} 변환 실패`)
+      }
+      // 파일명은 Content-Disposition 헤더에서 추출 (RFC 5987 디코딩)
+      const cd = res.headers.get('content-disposition') || ''
+      let fname = `보도자료.${format}`
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/i)
+      if (m) {
+        try {
+          fname = decodeURIComponent(m[1])
+        } catch {
+          // fallback to default
+        }
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fname
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDownloading(null)
     }
   }
 
@@ -835,23 +886,48 @@ function PreviewStep({
         )}
       </div>
 
-      <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-900">
-        <strong>다음 단계 (Phase 3.5):</strong> HWPX 파일 다운로드. 현재는 "전체 복사"로 결재 시스템·한글에 붙여넣으시면 됩니다.
+      {downloadError && (
+        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>{downloadError}</span>
+        </div>
+      )}
+
+      <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-900">
+        <strong>다운로드:</strong> HWPX는 한글에서 바로 열립니다. MD는 텍스트 편집기에서 열어 결재 시스템에 붙여넣으시면 됩니다.
       </div>
 
-      <div className="flex justify-between pt-2">
+      <div className="flex flex-wrap justify-between gap-2 pt-2">
         <button
           onClick={onBack}
           className="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-900"
         >
           ← 이전 (편집)
         </button>
-        <button
-          onClick={handleCopy}
-          className="px-5 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 text-sm font-medium"
-        >
-          {copied ? '✓ 복사됨' : '전체 복사'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleCopy}
+            className="px-4 py-2.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 font-medium"
+          >
+            {copied ? '✓ 복사됨' : '전체 복사'}
+          </button>
+          <button
+            onClick={() => handleDownload('md')}
+            disabled={downloading !== null}
+            className="flex items-center gap-1.5 px-4 py-2.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 font-medium"
+          >
+            {downloading === 'md' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            MD 다운로드
+          </button>
+          <button
+            onClick={() => handleDownload('hwpx')}
+            disabled={downloading !== null}
+            className="flex items-center gap-1.5 px-5 py-2.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 font-medium"
+          >
+            {downloading === 'hwpx' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            HWPX 다운로드
+          </button>
+        </div>
       </div>
     </div>
   )

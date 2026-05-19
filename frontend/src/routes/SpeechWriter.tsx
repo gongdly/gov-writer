@@ -620,7 +620,6 @@ export default function SpeechWriter() {
                 <h2 className="text-base font-semibold text-slate-900">생성 결과</h2>
                 <div className="flex items-center gap-3 text-xs text-slate-500">
                   <span>{result.char_count.toLocaleString()}자</span>
-                  <CopyButton text={result.generated_text} />
                 </div>
               </div>
               <pre
@@ -630,9 +629,12 @@ export default function SpeechWriter() {
                 {result.generated_text}
               </pre>
             </div>
+            <SpeechResultActions
+              generatedText={result.generated_text}
+              eventName={form.eventName}
+            />
             <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-900">
-              <strong>다음 단계 (Phase 5):</strong> 단락 단위 재생성·톤 조정·페르소나 저장.
-              현재는 "복사" 후 결재 시스템·한글에 붙여넣으시거나, 입력 폼을 수정 후 재생성하시면 됩니다.
+              HWPX는 한글에서 바로 열립니다. 입력 폼을 수정 후 재생성도 가능합니다.
             </div>
           </div>
         )}
@@ -641,24 +643,97 @@ export default function SpeechWriter() {
   )
 }
 
-function CopyButton({ text }: { text: string }) {
+function SpeechResultActions({
+  generatedText, eventName,
+}: {
+  generatedText: string
+  eventName: string
+}) {
   const [copied, setCopied] = useState(false)
+  const [downloading, setDownloading] = useState<'md' | 'hwpx' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(text)
+      await navigator.clipboard.writeText(generatedText)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      alert('복사 실패. 텍스트 직접 선택하여 복사해주세요.')
+      alert('복사 실패')
     }
   }
+
+  const handleDownload = async (format: 'md' | 'hwpx') => {
+    setError(null)
+    setDownloading(format)
+    try {
+      const res = await fetch(`/api/download/speech/${format}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          generated_text: generatedText,
+          title: eventName,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.text()
+        throw new Error(err || `${format.toUpperCase()} 변환 실패`)
+      }
+      const cd = res.headers.get('content-disposition') || ''
+      let fname = `말씀자료.${format}`
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/i)
+      if (m) {
+        try { fname = decodeURIComponent(m[1]) } catch { /* ignore */ }
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fname
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDownloading(null)
+    }
+  }
+
   return (
-    <button
-      onClick={handleCopy}
-      className="px-3 py-1 text-xs bg-slate-900 hover:bg-slate-800 text-white rounded font-medium"
-    >
-      {copied ? '✓ 복사됨' : '전체 복사'}
-    </button>
+    <div className="space-y-2">
+      {error && (
+        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+      <div className="flex flex-wrap justify-end gap-2">
+        <button
+          onClick={handleCopy}
+          className="px-4 py-2 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 font-medium"
+        >
+          {copied ? '✓ 복사됨' : '전체 복사'}
+        </button>
+        <button
+          onClick={() => handleDownload('md')}
+          disabled={downloading !== null}
+          className="flex items-center gap-1.5 px-4 py-2 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 font-medium"
+        >
+          {downloading === 'md' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          MD 다운로드
+        </button>
+        <button
+          onClick={() => handleDownload('hwpx')}
+          disabled={downloading !== null}
+          className="flex items-center gap-1.5 px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 font-medium"
+        >
+          {downloading === 'hwpx' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          HWPX 다운로드
+        </button>
+      </div>
+    </div>
   )
 }
 

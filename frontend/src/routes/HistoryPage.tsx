@@ -297,6 +297,8 @@ export default function HistoryPage() {
 
 function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void }) {
   const [copied, setCopied] = useState(false)
+  const [downloading, setDownloading] = useState<'md' | 'hwpx' | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const handleCopy = async () => {
     try {
@@ -305,6 +307,71 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
       setTimeout(() => setCopied(false), 2000)
     } catch {
       alert('복사 실패')
+    }
+  }
+
+  const handleDownload = async (format: 'md' | 'hwpx') => {
+    setError(null)
+    setDownloading(format)
+    try {
+      let url: string
+      let body: Record<string, unknown>
+
+      if (draft.doc_type === 'press') {
+        // 보도자료: generated_text는 JSON 문자열
+        let parsed: {
+          title?: string
+          subtitle?: string
+          lead_paragraph?: string
+          body_paragraphs?: string[]
+        } = {}
+        try {
+          parsed = JSON.parse(draft.generated_text)
+        } catch {
+          throw new Error('보도자료 본문 파싱 실패. 옛 데이터는 다운로드를 지원하지 않습니다.')
+        }
+        url = `/api/download/press/${format}`
+        body = {
+          title: parsed.title || draft.title,
+          subtitle: parsed.subtitle || '',
+          lead_paragraph: parsed.lead_paragraph || '',
+          body_paragraphs: parsed.body_paragraphs || [],
+        }
+      } else {
+        // 말씀자료: 그대로 텍스트
+        url = `/api/download/speech/${format}`
+        body = {
+          generated_text: draft.generated_text,
+          title: draft.title,
+        }
+      }
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(await res.text() || `${format} 변환 실패`)
+
+      const cd = res.headers.get('content-disposition') || ''
+      let fname = `${draft.title || 'document'}.${format}`
+      const m = cd.match(/filename\*=UTF-8''([^;]+)/i)
+      if (m) {
+        try { fname = decodeURIComponent(m[1]) } catch { /* ignore */ }
+      }
+      const blob = await res.blob()
+      const objUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objUrl
+      a.download = fname
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(objUrl)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDownloading(null)
     }
   }
 
@@ -337,22 +404,44 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
               {draft.title}
             </h2>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-900 text-white rounded-lg hover:bg-slate-800"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50"
             >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
               {copied ? '복사됨' : '복사'}
             </button>
             <button
+              onClick={() => handleDownload('md')}
+              disabled={downloading !== null}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+            >
+              {downloading === 'md' && <Loader2 className="w-3 h-3 animate-spin" />}
+              MD
+            </button>
+            <button
+              onClick={() => handleDownload('hwpx')}
+              disabled={downloading !== null}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+            >
+              {downloading === 'hwpx' && <Loader2 className="w-3 h-3 animate-spin" />}
+              HWPX
+            </button>
+            <button
               onClick={onClose}
-              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg ml-1"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
+        {error && (
+          <div className="mx-4 mt-3 flex items-start gap-2 p-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-6">
           <pre
             className="text-sm leading-relaxed whitespace-pre-wrap break-words text-slate-800"
