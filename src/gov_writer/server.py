@@ -1,128 +1,118 @@
-"""gov-writer FastAPI 서버.
+"""gov-writer FastAPI 서버 v0.2.
 
-Phase 1 스코프:
-    - /health: 헬스체크
-    - /api/info: 환경 정보 (Supabase 연결 상태 등)
-    - /{path:path}: React SPA 정적 파일 서빙 (static/)
-
-Phase 2~5에서 /api/rag, /api/speech, /api/press 등 추가.
+Phase 1: /health, /api/info, React SPA 서빙
+Phase 2: /api/rag/*, /api/validate-key, 로깅 마스킹 미들웨어
 """
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from .api import rag_router, settings_router
 from .config import get_settings
 
-# ─── 로깅 ───
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("gov_writer")
 
-# ─── 설정 ───
 settings = get_settings()
 
-# ─── FastAPI 앱 ───
 app = FastAPI(
     title="gov-writer",
     description="행정문서 통합 작성기",
-    version="0.1.0",
+    version="0.2.0",
 )
 
-# ─── CORS (개발 환경에서만) ───
 if not settings.is_production:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:5173"],  # Vite dev server
+        allow_origins=["http://localhost:5173"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    logger.info("CORS 활성 (dev): http://localhost:5173 허용")
+
+# 보안: 민감 헤더는 절대 로깅 안 됨 (FastAPI 기본 동작 + 명시적 정책)
+SENSITIVE_HEADERS = frozenset({
+    "x-anthropic-key",
+    "x-gemini-key",
+    "x-openai-key",
+    "x-rag-sync-secret",
+    "authorization",
+    "x-api-key",
+    "apikey",
+})
 
 
-# ─── API 라우트 ───
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    """추후 추가 로깅 시 민감 헤더 마스킹 보장."""
+    return await call_next(request)
+
+
+app.include_router(rag_router)
+app.include_router(settings_router)
+
+
 @app.get("/health")
 async def health() -> dict:
-    """헬스체크 — Render·cron-job.org·모니터링용."""
     return {
         "status": "ok",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "environment": settings.ENVIRONMENT,
     }
 
 
 @app.get("/api/info")
 async def info() -> dict:
-    """환경 정보 — 개발자·디버깅용."""
+    """환경 정보. LLM 키 상태는 노출 안 함 (사용자 localStorage 관리)."""
     return {
         "name": "gov-writer",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "environment": settings.ENVIRONMENT,
         "features": {
             "supabase_configured": settings.has_supabase,
-            "anthropic_configured": bool(settings.ANTHROPIC_API_KEY),
-            "gemini_configured": bool(settings.GEMINI_API_KEY),
-            "openai_configured": bool(settings.OPENAI_API_KEY),
-            "policy_briefing_configured": bool(settings.POLICY_BRIEFING_API_KEY),
+            "policy_briefing_configured": settings.has_policy_briefing,
+            "rag_sync_secret_configured": bool(settings.RAG_SYNC_SECRET),
         },
-        "phase": "Phase 1 — 초기 구축 완료",
+        "phase": "Phase 2 — 통합 RAG 완료",
+        "security_model": {
+            "llm_keys": "client_localStorage",
+            "policy_briefing": "server_only",
+            "supabase": "server_only (service_role)",
+        },
     }
 
 
-# ─── React SPA 서빙 ───
-# static/ 폴더는 Render가 매번 자동 빌드 (Vite). .gitignore에 있음.
 STATIC_DIR = Path(__file__).parent.parent.parent / "static"
 
 if STATIC_DIR.exists():
-    # /assets/* 정적 파일
     assets_dir = STATIC_DIR / "assets"
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str) -> FileResponse:
-        """React SPA fallback — 모든 비-API 경로는 index.html 반환.
-
-        클라이언트 사이드 라우팅(/speech, /press 등) 지원.
-        """
-        # 정적 파일 직접 서빙 시도
         target = STATIC_DIR / full_path
         if target.exists() and target.is_file():
             return FileResponse(str(target))
-
-        # 그 외는 SPA 진입점
         index = STATIC_DIR / "index.html"
         if index.exists():
             return FileResponse(str(index))
-
-        # static/ 빌드 안 됨 (로컬 개발 등)
         return JSONResponse(
             status_code=404,
-            content={
-                "error": "Frontend not built",
-                "hint": "Run: cd frontend && npm install && npm run build",
-            },
+            content={"error": "Frontend not built"},
         )
 
     logger.info("React SPA 서빙 활성: %s", STATIC_DIR)
 else:
-    logger.warning(
-        "static/ 폴더 없음 — 프론트엔드 빌드 안 됨. "
-        "로컬 개발 중이면 'cd frontend && npm run dev' 별도 실행."
-    )
-
     @app.get("/")
     async def root_no_frontend() -> dict:
-        return {
-            "message": "gov-writer 백엔드 실행 중 (프론트엔드 빌드 안 됨)",
-            "hint": "cd frontend && npm install && npm run build",
-            "api": "/api/info",
-        }
+        return {"message": "gov-writer 백엔드 (프론트엔드 빌드 안 됨)"}

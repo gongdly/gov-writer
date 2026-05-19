@@ -31,18 +31,15 @@ services:
 
     # 환경변수는 Render Dashboard에서 직접 설정 (보안)
     # 아래는 명세만 (값 없음)
+    #
+    # ⚠️ LLM 키(Anthropic·Gemini·OpenAI)는 여기 정의하지 않습니다.
+    #    각 사용자가 브라우저에서 자기 키를 입력하여 localStorage에 보관합니다.
     envVars:
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
         sync: false
       - key: POLICY_BRIEFING_API_KEY
         sync: false
