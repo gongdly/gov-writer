@@ -1,22 +1,26 @@
 """보도자료 API 라우터.
 
-엔드포인트:
-    GET  /api/press/search?q=...&ministry=...   — 정책브리핑 검색
-    GET  /api/press/detail/{news_id}            — 보도자료 단건 상세
-    GET  /api/press/ministries                  — 부처 목록 (최근 보도자료 기준)
-    POST /api/press/generate                    — 5-Layer로 본문 생성 (사용자 LLM 키)
+옛 press-docs-mcp의 /api/ai/draft·/api/ai/draft-with-docs 동작을 그대로 이식.
+사용자가 익숙한 흐름: 검색 → 작성(AI 초안+파일업로드) → 미리보기.
 
-⚠️ 보안: LLM API 키는 X-Anthropic-Key / X-Gemini-Key / X-OpenAI-Key 헤더로 받음.
+엔드포인트:
+    GET  /api/press/search                — 정책브리핑 검색
+    GET  /api/press/detail/{news_id}      — 단건 상세
+    GET  /api/press/ministries            — 부처 목록
+    POST /api/press/draft                 — AI 초안 (JSON 본문, 참조 보도자료만)
+    POST /api/press/draft-with-docs       — AI 초안 + 파일 업로드 (multipart)
 """
 from __future__ import annotations
 
+import json
 import os
-from typing import Literal, Optional
+from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from ..db import create_draft
+from ..extractors import extract_text
 from ..llm.client import LLMError, call_llm
 from ..policy_api import (
     get_press_release,
@@ -24,36 +28,26 @@ from ..policy_api import (
     list_official_ministries,
     search_press_releases,
 )
-from ..prompts import PressInput, build_press_prompt
-from ..rag import search_policy_chunks
 
 router = APIRouter(prefix="/api/press", tags=["press"])
 
-Provider = Literal["anthropic", "gemini", "openai"]
 
-
-# ─── 검색·상세 ───
+# ─── 정책브리핑 검색·상세 ───
 
 
 @router.get("/search")
 async def press_search(
-    q: str = Query("", description="키워드 (제목·본문 매칭)"),
+    q: str = Query("", description="키워드"),
     ministry: Optional[str] = Query(None, description="부처 필터"),
-    days: int = Query(3, ge=1, le=3, description="조회 기간 (최대 3일)"),
-    limit: int = Query(20, ge=1, le=50),
+    days: int = Query(3, ge=1, le=3),
+    limit: int = Query(50, ge=1, le=100),
 ):
-    """정책브리핑 보도자료 키워드 검색."""
     api_key = os.environ.get("POLICY_BRIEFING_API_KEY", "")
     if not api_key:
         raise HTTPException(500, "POLICY_BRIEFING_API_KEY 미설정")
-
     try:
         results = await search_press_releases(
-            api_key=api_key,
-            query=q,
-            ministry=ministry,
-            days=days,
-            limit=limit,
+            api_key=api_key, query=q, ministry=ministry, days=days, limit=limit,
         )
         return {"results": results, "count": len(results)}
     except Exception as e:
@@ -62,11 +56,9 @@ async def press_search(
 
 @router.get("/detail/{news_id}")
 async def press_detail(news_id: str):
-    """보도자료 단건 상세."""
     api_key = os.environ.get("POLICY_BRIEFING_API_KEY", "")
     if not api_key:
         raise HTTPException(500, "POLICY_BRIEFING_API_KEY 미설정")
-
     item = await get_press_release(api_key=api_key, news_item_id=news_id)
     if not item:
         raise HTTPException(404, f"보도자료를 찾을 수 없습니다: {news_id}")
@@ -74,14 +66,7 @@ async def press_detail(news_id: str):
 
 
 @router.get("/ministries")
-async def press_ministries(
-    only_recent: bool = Query(False, description="최근 보도자료에 등장한 부처만"),
-):
-    """부처 목록.
-
-    only_recent=False: 정식 명칭 18개부 등 전체
-    only_recent=True: 최근 3일 보도자료에 등장한 부처만
-    """
+async def press_ministries(only_recent: bool = Query(False)):
     if only_recent:
         api_key = os.environ.get("POLICY_BRIEFING_API_KEY", "")
         if not api_key:
@@ -92,133 +77,178 @@ async def press_ministries(
     return {"ministries": ministries}
 
 
-# ─── 생성 ───
+# ─── AI 초안 작성 (옛 press-docs-mcp 시스템 프롬프트 그대로) ───
+
+SYSTEM_PROMPT = """당신은 한국 정부 보도자료 작성 전문가입니다.
+정부 보도자료의 표준 양식과 톤을 정확히 따릅니다.
+
+핵심 규칙:
+- [참조 보도자료]가 제공되면, 해당 보도자료의 톤·구조·문체·용어를 최대한 따르세요.
+- 참조 보도자료에 나오는 장관명, 부처명, 직함을 그대로 사용하세요. 당신의 학습 데이터가 아닌 참조 자료의 정보를 우선하세요.
+- 리드문은 "□"로 시작
+- 본문 단락은 " ○"로 시작
+- 역피라미드 구조 (핵심 → 세부사항 → 배경)
+
+응답은 반드시 아래 JSON 형식으로만 출력하세요. 다른 텍스트 없이 JSON만:
+{
+  "title": "메인 제목",
+  "subtitle": "- 부제목",
+  "lead_paragraph": "□ 리드문...",
+  "body_paragraphs": [" ○ 본문1...", " ○ 본문2...", " ○ 본문3..."]
+}"""
 
 
-class PressGenerateRequest(BaseModel):
-    """보도자료 생성 요청."""
-    input: PressInput
-    use_rag: bool = True  # RAG 자동 참조
-    rag_query: Optional[str] = None  # RAG 검색용 쿼리 (생략 시 제목 사용)
-    save_draft: bool = True  # 작성 결과 DB 저장
-    max_tokens: int = 4000
-    temperature: float = 0.7
+def _build_user_prompt(topic: str, instructions: str, ref_texts: list[str]) -> str:
+    user_prompt = f"주제: {topic}"
+    if instructions:
+        user_prompt += f"\n추가 지시: {instructions}"
+    if ref_texts:
+        user_prompt += "\n\n[참조 보도자료]\n" + "\n---\n".join(ref_texts[:6])
+    user_prompt += "\n\nJSON으로 보도자료 초안을 작성해주세요."
+    return user_prompt
 
 
-class PressGenerateResponse(BaseModel):
-    """보도자료 생성 응답."""
-    generated_text: str
-    rag_used: bool
-    rag_count: int
-    draft_id: Optional[str] = None
-    char_count: int
+def _parse_ai_response(text: str) -> dict:
+    clean = text.strip()
+    if clean.startswith("```"):
+        clean = clean.split("\n", 1)[1] if "\n" in clean else clean
+    if clean.endswith("```"):
+        clean = clean.rsplit("```", 1)[0]
+    return json.loads(clean.strip())
 
 
-def _get_user_llm_key(
-    provider: Provider,
+class DraftRequest(BaseModel):
+    """AI 초안 작성 요청."""
+    topic: str
+    instructions: str = ""
+    ref_texts: list[str] = []
+
+
+def _resolve_user_key(
+    provider: str,
     anthropic: str | None,
     gemini: str | None,
     openai: str | None,
 ) -> str:
-    """provider에 해당하는 헤더 값 반환."""
-    mapping = {"anthropic": anthropic, "gemini": gemini, "openai": openai}
-    key = mapping.get(provider)
+    mapping = {"anthropic": anthropic, "claude": anthropic, "gemini": gemini, "openai": openai}
+    key = mapping.get(provider.lower())
     if not key:
-        raise HTTPException(
-            401,
-            f"{provider} API 키가 헤더에 없습니다. "
-            f"X-{provider.title()}-Key 헤더로 전달해주세요.",
-        )
+        raise HTTPException(401, f"{provider} API 키가 헤더에 없습니다")
     return key
 
 
-@router.post("/generate", response_model=PressGenerateResponse)
-async def press_generate(
-    body: PressGenerateRequest,
-    x_llm_provider: str = Header("gemini", description="anthropic|gemini|openai"),
-    x_anthropic_key: Optional[str] = Header(None),
-    x_gemini_key: Optional[str] = Header(None),
-    x_openai_key: Optional[str] = Header(None),
-):
-    """보도자료 본문 생성.
+async def _do_draft(
+    topic: str,
+    instructions: str,
+    ref_texts: list[str],
+    provider: str,
+    api_key: str,
+) -> dict:
+    """공통 AI 초안 생성."""
+    if not topic.strip():
+        raise HTTPException(400, "주제(topic)를 입력해주세요")
 
-    흐름:
-        1. (선택) RAG에서 유사 보도자료 검색 → L4 컨텍스트
-        2. 5-Layer 프롬프트 조립
-        3. 사용자 LLM 키로 호출
-        4. (선택) drafts 테이블 저장
-        5. 응답 후 사용자 키 즉시 폐기
-    """
-    provider = x_llm_provider.lower().strip()
-    if provider not in ("anthropic", "gemini", "openai"):
-        raise HTTPException(400, f"지원하지 않는 provider: {provider}")
+    user_prompt = _build_user_prompt(topic, instructions, ref_texts)
+    norm_provider = "anthropic" if provider.lower() in ("claude", "anthropic") else provider.lower()
 
-    user_key = _get_user_llm_key(provider, x_anthropic_key, x_gemini_key, x_openai_key)
-
-    # 1. RAG 검색 (선택)
-    rag_chunks: list[dict] = []
-    if body.use_rag:
-        rag_query = body.rag_query or body.input.title
-        if rag_query.strip():
-            try:
-                rag_chunks = await search_policy_chunks(
-                    query=rag_query,
-                    match_count=5,
-                    similarity_threshold=0.4,
-                    user_gemini_key=x_gemini_key,
-                    auto_sync=True,
-                )
-            except Exception:
-                # RAG 실패는 무시 (보도자료 생성은 계속)
-                rag_chunks = []
-
-    # 2. 5-Layer 프롬프트 조립
-    system_prompt, user_prompt = build_press_prompt(
-        body.input,
-        contexts=None,  # 업로드 자료는 Phase 4+에서 추가
-        rag_chunks=rag_chunks if rag_chunks else None,
-    )
-
-    # 3. LLM 호출
     try:
-        generated_text = await call_llm(
-            provider=provider,  # type: ignore
-            api_key=user_key,
-            system_prompt=system_prompt,
+        text = await call_llm(
+            provider=norm_provider,  # type: ignore
+            api_key=api_key,
+            system_prompt=SYSTEM_PROMPT,
             user_prompt=user_prompt,
-            max_tokens=body.max_tokens,
-            temperature=body.temperature,
+            max_tokens=2000,
+            temperature=0.7,
         )
     except LLMError as e:
         raise HTTPException(
             status_code=e.status_code or 500,
             detail=f"LLM 호출 실패: {e}",
         )
+
+    try:
+        parsed = _parse_ai_response(text)
+    except (json.JSONDecodeError, ValueError):
+        return {"raw_text": text, "error": "JSON 파싱 실패", "title": "", "subtitle": "", "lead_paragraph": "", "body_paragraphs": []}
+
+    # drafts 저장 (실패 무시)
+    try:
+        await create_draft(
+            doc_type="press",
+            title=parsed.get("title", topic),
+            form_data={"topic": topic, "instructions": instructions, "ref_count": len(ref_texts)},
+            generated_text=json.dumps(parsed, ensure_ascii=False),
+            rag_references=[],
+        )
+    except Exception:
+        pass
+
+    return parsed
+
+
+@router.post("/draft")
+async def press_draft(
+    req: DraftRequest,
+    x_llm_provider: str = Header("gemini"),
+    x_anthropic_key: Optional[str] = Header(None),
+    x_gemini_key: Optional[str] = Header(None),
+    x_openai_key: Optional[str] = Header(None),
+):
+    """AI 초안 작성 (참조 보도자료 텍스트만, 파일 업로드 없음)."""
+    api_key = _resolve_user_key(x_llm_provider, x_anthropic_key, x_gemini_key, x_openai_key)
+    try:
+        return await _do_draft(
+            topic=req.topic,
+            instructions=req.instructions,
+            ref_texts=req.ref_texts,
+            provider=x_llm_provider,
+            api_key=api_key,
+        )
     finally:
-        # 사용자 키 즉시 폐기 (변수 명시적 삭제)
-        del user_key
+        del api_key
 
-    # 4. drafts 저장 (선택)
-    draft_id: Optional[str] = None
-    if body.save_draft:
-        try:
-            rag_refs = list({c.get("article_id") for c in rag_chunks if c.get("article_id")})
-            draft_row = await create_draft(
-                doc_type="press",
-                title=body.input.title,
-                form_data=body.input.model_dump(),
-                generated_text=generated_text,
-                rag_references=rag_refs,
-            )
-            draft_id = draft_row.get("id") if draft_row else None
-        except Exception:
-            # 저장 실패는 무시 (본문은 이미 응답)
-            draft_id = None
 
-    return PressGenerateResponse(
-        generated_text=generated_text,
-        rag_used=body.use_rag and bool(rag_chunks),
-        rag_count=len(rag_chunks),
-        draft_id=draft_id,
-        char_count=len(generated_text),
-    )
+@router.post("/draft-with-docs")
+async def press_draft_with_docs(
+    topic: str = Form(...),
+    instructions: str = Form(""),
+    ref_texts: str = Form("[]"),
+    files: list[UploadFile] = File(default=[]),
+    x_llm_provider: str = Header("gemini"),
+    x_anthropic_key: Optional[str] = Header(None),
+    x_gemini_key: Optional[str] = Header(None),
+    x_openai_key: Optional[str] = Header(None),
+):
+    """AI 초안 작성 + 파일 업로드 (PDF/DOCX/HWPX/TXT)."""
+    api_key = _resolve_user_key(x_llm_provider, x_anthropic_key, x_gemini_key, x_openai_key)
+
+    try:
+        refs = json.loads(ref_texts)
+        if not isinstance(refs, list):
+            refs = []
+    except json.JSONDecodeError:
+        refs = []
+
+    # 파일 텍스트 추출 → ref_texts에 추가
+    file_extracts = []
+    for f in files:
+        if not f.filename:
+            continue
+        content = await f.read()
+        if not content:
+            continue
+        text = extract_text(f.filename, content)
+        file_extracts.append(f"[첨부:{f.filename}]\n{text}")
+
+    combined_refs = (refs + file_extracts)[:6]
+
+    try:
+        return await _do_draft(
+            topic=topic,
+            instructions=instructions,
+            ref_texts=combined_refs,
+            provider=x_llm_provider,
+            api_key=api_key,
+        )
+    finally:
+        del api_key
