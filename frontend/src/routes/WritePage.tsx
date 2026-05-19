@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import {
-  ArrowLeft, Megaphone, FileText, Search, Loader2, AlertCircle, X,
+  ArrowLeft, Megaphone, Search, Loader2, AlertCircle, X,
   Upload, Sparkles, Plus, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { getActiveProvider, getStoredKey } from '../hooks/useLLMSettings'
+import SpeechWriter from './SpeechWriter'
 
 type DocType = 'speech' | 'press'
 
@@ -77,31 +78,10 @@ export default function WritePage() {
   const docType: DocType = params.get('type') === 'press' ? 'press' : 'speech'
 
   if (docType === 'speech') {
-    return <SpeechPlaceholder />
+    return <SpeechWriter />
   }
 
   return <PressEditor />
-}
-
-function SpeechPlaceholder() {
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200">
-        <div className="max-w-3xl mx-auto px-6 py-4">
-          <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
-            <ArrowLeft className="w-4 h-4" /> 허브로
-          </Link>
-        </div>
-      </header>
-      <main className="max-w-3xl mx-auto px-6 py-16 text-center">
-        <div className="inline-flex p-3 bg-blue-50 rounded-2xl mb-4">
-          <FileText className="w-6 h-6 text-blue-600" />
-        </div>
-        <h1 className="text-2xl font-semibold text-slate-900 mb-3">말씀자료 작성</h1>
-        <p className="text-sm text-slate-500">Phase 4에서 구현 예정</p>
-      </main>
-    </div>
-  )
 }
 
 function PressEditor() {
