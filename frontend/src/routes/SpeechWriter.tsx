@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowLeft, FileText, Upload, Sparkles, Loader2, AlertCircle, X, Plus,
+  ArrowLeft, FileText, Upload, Sparkles, Loader2, AlertCircle, X,
 } from 'lucide-react'
 import { getActiveProvider, getStoredKey } from '../hooks/useLLMSettings'
 import {
