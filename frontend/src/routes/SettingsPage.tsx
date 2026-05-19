@@ -132,7 +132,8 @@ export default function SettingsPage() {
                   key={p.id}
                   onClick={() => hasKey && changeProvider(p.id)}
                   disabled={!hasKey}
-                  className={`p-3 rounded-xl border text-sm transition-all ${
+                  title={hasKey ? `${p.name} 사용` : `${p.name} 키를 먼저 입력하세요`}
+                  className={`p-3 rounded-xl border text-sm transition-all relative ${
                     isActive
                       ? 'border-blue-500 bg-blue-50 text-blue-900 font-medium'
                       : hasKey
@@ -140,7 +141,13 @@ export default function SettingsPage() {
                       : 'border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed'
                   }`}
                 >
-                  {p.name.split(' ')[0]}
+                  <div>{p.name.split(' ')[0]}</div>
+                  {!hasKey && (
+                    <div className="text-[10px] text-slate-400 mt-0.5">키 필요</div>
+                  )}
+                  {isActive && (
+                    <div className="text-[10px] text-blue-700 mt-0.5">✓ 사용 중</div>
+                  )}
                 </button>
               )
             })}
