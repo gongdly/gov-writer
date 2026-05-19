@@ -1,0 +1,48 @@
+[project]
+name = "gov-writer"
+version = "0.1.0"
+description = "행정문서 통합 작성기 — 말씀자료·보도자료 한곳에서"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "gongdly" },
+]
+dependencies = [
+    # 웹 프레임워크
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "python-multipart>=0.0.9",
+
+    # HTTP·XML
+    "httpx>=0.27.0",
+    "lxml>=5.1.0",
+
+    # 데이터 모델·설정
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "python-dotenv>=1.0.0",
+
+    # 파일 처리
+    "pypdf>=4.0.0",
+    "python-docx>=1.1.0",
+    "python-hwpx>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

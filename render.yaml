@@ -1,0 +1,52 @@
+# =============================================================================
+# Render 배포 설정
+# =============================================================================
+# 이 파일이 핵심 — 빌드 산출물 함정을 영구히 해결합니다.
+#
+# Build Command가 매번 다음을 자동 수행:
+#   1. Python 패키지 설치 (FastAPI 등)
+#   2. Frontend npm install
+#   3. Vite로 React SPA 빌드 → static/ 자동 생성
+#
+# GitHub에 push만 하면 Render가 알아서 빌드 → 배포.
+# static/ 폴더는 .gitignore에 있어 커밋되지 않음 (매번 새로 빌드됨).
+# =============================================================================
+
+services:
+  - type: web
+    name: gov-writer
+    runtime: python
+    region: oregon  # 무료 플랜 가능한 리전
+    plan: free
+
+    buildCommand: |
+      pip install -e . && \
+      cd frontend && \
+      npm install && \
+      npm run build && \
+      cd ..
+
+    startCommand: |
+      uvicorn gov_writer.server:app --host 0.0.0.0 --port $PORT
+
+    # 환경변수는 Render Dashboard에서 직접 설정 (보안)
+    # 아래는 명세만 (값 없음)
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: POLICY_BRIEFING_API_KEY
+        sync: false
+      - key: RAG_SYNC_SECRET
+        sync: false
+      - key: ENVIRONMENT
+        value: production
