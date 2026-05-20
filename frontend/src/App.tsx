@@ -4,6 +4,7 @@ import WritePage from './routes/WritePage'
 import SettingsPage from './routes/SettingsPage'
 import HistoryPage from './routes/HistoryPage'
 import PersonasPage from './routes/PersonasPage'
+import ExplainPage from './routes/ExplainPage'
 import PlaceholderPage from './routes/PlaceholderPage'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/personas" element={<PersonasPage />} />
+        <Route path="/explain" element={<ExplainPage />} />
         <Route path="*" element={<PlaceholderPage title="페이지 없음" phase="" />} />
       </Routes>
     </BrowserRouter>

@@ -1,13 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, FileText, Megaphone, Search, Eye, RotateCw, Trash2,
+  ArrowLeft, FileText, Megaphone, MessageCircleQuestion, Search, Eye, RotateCw, Trash2,
   Loader2, AlertCircle, ChevronLeft, ChevronRight, X, Copy, Check, Settings,
 } from 'lucide-react'
 
 interface DraftListItem {
   id: string
-  doc_type: 'speech' | 'press'
+  doc_type: 'speech' | 'press' | 'explain'
   title: string
   form_data: Record<string, unknown>
   created_at: string
@@ -29,7 +29,7 @@ export default function HistoryPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
-  const [docType, setDocType] = useState<'all' | 'speech' | 'press'>('all')
+  const [docType, setDocType] = useState<'all' | 'speech' | 'press' | 'explain'>('all')
   const [viewing, setViewing] = useState<DraftDetail | null>(null)
 
   const fetchDrafts = useCallback(async () => {
@@ -81,7 +81,11 @@ export default function HistoryPage() {
       doc_type: draft.doc_type,
       form_data: draft.form_data,
     }))
-    navigate(`/write?type=${draft.doc_type}&reuse=1`)
+    if (draft.doc_type === 'explain') {
+      navigate('/explain?reuse=1')
+    } else {
+      navigate(`/write?type=${draft.doc_type}&reuse=1`)
+    }
   }
 
   const handleDelete = async (draftId: string, title: string) => {
@@ -139,7 +143,7 @@ export default function HistoryPage() {
             </button>
           </div>
           <div className="flex gap-2">
-            {(['all', 'speech', 'press'] as const).map((t) => (
+            {(['all', 'speech', 'press', 'explain'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => { setDocType(t); setOffset(0) }}
@@ -149,7 +153,7 @@ export default function HistoryPage() {
                     : 'border-slate-200 hover:border-slate-300 text-slate-600'
                 }`}
               >
-                {t === 'all' ? '전체' : t === 'speech' ? '말씀자료' : '보도자료'}
+                {t === 'all' ? '전체' : t === 'speech' ? '말씀자료' : t === 'press' ? '보도자료' : '설명자료'}
               </button>
             ))}
           </div>
@@ -204,12 +208,18 @@ export default function HistoryPage() {
                           className={`text-xs px-2 py-0.5 rounded ${
                             d.doc_type === 'press'
                               ? 'bg-green-50 text-green-700'
+                              : d.doc_type === 'explain'
+                              ? 'bg-amber-50 text-amber-800'
                               : 'bg-blue-50 text-blue-700'
                           }`}
                         >
                           {d.doc_type === 'press' ? (
                             <span className="flex items-center gap-1">
                               <Megaphone className="w-3 h-3" /> 보도자료
+                            </span>
+                          ) : d.doc_type === 'explain' ? (
+                            <span className="flex items-center gap-1">
+                              <MessageCircleQuestion className="w-3 h-3" /> 설명자료
                             </span>
                           ) : (
                             <span className="flex items-center gap-1">
@@ -337,6 +347,23 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
           lead_paragraph: parsed.lead_paragraph || '',
           body_paragraphs: parsed.body_paragraphs || [],
         }
+      } else if (draft.doc_type === 'explain') {
+        // 설명자료: generated_text는 JSON 문자열
+        let parsed: any = {}
+        try {
+          parsed = JSON.parse(draft.generated_text)
+        } catch {
+          throw new Error('설명자료 본문 파싱 실패. 재사용 후 새로 다운로드해주세요.')
+        }
+        url = `/api/download/explain/${format}`
+        body = {
+          title: parsed.title || draft.title,
+          report_date: parsed.report_date || '',
+          ministry_name: parsed.ministry_name || '',
+          article: parsed.article || {},
+          position_paragraphs: parsed.position_paragraphs || [],
+          contacts: [],  // 🔒 이력에는 담당자 미저장. 재사용 후 직접 입력.
+        }
       } else {
         // 말씀자료: 그대로 텍스트
         url = `/api/download/speech/${format}`
@@ -391,10 +418,16 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
                 className={`text-xs px-2 py-0.5 rounded ${
                   draft.doc_type === 'press'
                     ? 'bg-green-50 text-green-700'
+                    : draft.doc_type === 'explain'
+                    ? 'bg-amber-50 text-amber-800'
                     : 'bg-blue-50 text-blue-700'
                 }`}
               >
-                {draft.doc_type === 'press' ? '보도자료' : '말씀자료'}
+                {draft.doc_type === 'press'
+                  ? '보도자료'
+                  : draft.doc_type === 'explain'
+                  ? '설명자료'
+                  : '말씀자료'}
               </span>
               <span className="text-xs text-slate-400">
                 {new Date(draft.created_at).toLocaleString('ko-KR')}

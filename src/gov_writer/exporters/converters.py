@@ -234,3 +234,225 @@ def safe_filename(name: str, default: str = "document") -> str:
     # 길이 제한 (한글 50자)
     cleaned = cleaned[:50].strip()
     return cleaned or default
+
+
+# ─── 설명자료 변환 (Phase 12) ───
+
+
+def explain_to_markdown(parsed: dict) -> str:
+    """설명자료 → Markdown.
+
+    행안부 보도설명자료 표준 양식:
+        [보도 설명자료]
+        보도시점: YYYY.M.D.(요일) 즉시보도
+        ────
+        [제목]
+        ────
+        1. 주요 보도내용
+         ○ [날짜] [매체] <기사 제목> 제하의 보도임
+           - [핵심 쟁점]
+
+        2. 동 보도내용에 대한 [부처명]의 입장
+         ○ [반박 단락]
+         ○ [반박 단락]
+        ────
+        담당 부서·이름·연락처
+
+    parsed 구조:
+        title, report_date, ministry_name,
+        article: {media_name, article_date, article_title, key_points},
+        position_paragraphs: [...],
+        contacts: [{division, department_role, manager_role, manager_name,
+                    manager_phone, staff_role, staff_name, staff_phone}, ...]
+    """
+    parts: list[str] = ["[보도 설명자료]"]
+
+    report_date = (parsed.get("report_date") or "").strip()
+    if report_date:
+        parts.append(f"보도시점: {report_date}")
+
+    parts.append("─" * 40)
+    parts.append("")
+
+    title = (parsed.get("title") or "보도설명자료").strip()
+    parts.append(f"# {title}")
+    parts.append("")
+    parts.append("─" * 40)
+    parts.append("")
+
+    # 1. 주요 보도내용
+    parts.append("## 1. 주요 보도내용")
+    parts.append("")
+
+    article = parsed.get("article") or {}
+    media = (article.get("media_name") or "").strip()
+    date = (article.get("article_date") or "").strip()
+    title_art = (article.get("article_title") or "").strip()
+
+    # 첫 줄: ○ [날짜] [매체] <기사 제목> 제하의 보도임
+    header_bits = []
+    if date:
+        header_bits.append(date)
+    if media:
+        header_bits.append(media)
+    article_header = " ".join(header_bits)
+    if title_art:
+        article_header = f"{article_header} <{title_art}> 제하의 보도임".strip()
+    if article_header:
+        parts.append(f" ○ {article_header}")
+        parts.append("")
+
+    # 핵심 쟁점
+    key_points = article.get("key_points") or []
+    for kp in key_points:
+        if kp and kp.strip():
+            parts.append(f"   - {kp.strip()}")
+    if key_points:
+        parts.append("")
+
+    # 2. 부처 입장
+    ministry = (parsed.get("ministry_name") or "○○부").strip()
+    parts.append(f"## 2. 동 보도내용에 대한 {ministry}의 입장")
+    parts.append("")
+
+    for p in parsed.get("position_paragraphs") or []:
+        if p and p.strip():
+            parts.append(f" ○ {p.strip()}")
+            parts.append("")
+
+    # 담당자
+    contacts = parsed.get("contacts") or []
+    if contacts:
+        parts.append("─" * 40)
+        parts.append("")
+        for c in contacts:
+            line_parts = []
+            div = (c.get("division") or "").strip()
+            dept = (c.get("department_role") or "").strip()
+            if div:
+                line_parts.append(div)
+            if dept:
+                line_parts.append(dept)
+            if line_parts:
+                parts.append(" / ".join(line_parts))
+
+            mgr_role = (c.get("manager_role") or "").strip()
+            mgr_name = (c.get("manager_name") or "").strip()
+            mgr_phone = (c.get("manager_phone") or "").strip()
+            if mgr_name or mgr_role:
+                role_label = mgr_role if mgr_role else "책임자"
+                phone_suffix = f" ({mgr_phone})" if mgr_phone else ""
+                parts.append(f"  · 책임자: {role_label} {mgr_name}{phone_suffix}".rstrip())
+
+            staff_role = (c.get("staff_role") or "").strip()
+            staff_name = (c.get("staff_name") or "").strip()
+            staff_phone = (c.get("staff_phone") or "").strip()
+            if staff_name or staff_role:
+                role_label = staff_role if staff_role else "담당자"
+                phone_suffix = f" ({staff_phone})" if staff_phone else ""
+                parts.append(f"  · 담당자: {role_label} {staff_name}{phone_suffix}".rstrip())
+            parts.append("")
+
+    return "\n".join(parts) + "\n"
+
+
+def explain_to_hwpx_bytes(parsed: dict) -> bytes:
+    """설명자료 → HWPX 바이트.
+
+    행안부 표준 양식 그대로 단순 add_paragraph로 작성.
+    """
+    from hwpx import HwpxDocument
+
+    doc = HwpxDocument.new()
+
+    # ── 헤더 ──
+    doc.add_paragraph("[보도 설명자료]")
+
+    report_date = (parsed.get("report_date") or "").strip()
+    if report_date:
+        doc.add_paragraph(f"보도시점: {report_date}")
+
+    doc.add_paragraph("─" * 40)
+    doc.add_paragraph("")
+
+    # ── 제목 ──
+    title = (parsed.get("title") or "보도설명자료").strip()
+    doc.add_paragraph(title)
+    doc.add_paragraph("")
+    doc.add_paragraph("─" * 40)
+    doc.add_paragraph("")
+
+    # ── 1. 주요 보도내용 ──
+    doc.add_paragraph("1. 주요 보도내용")
+    doc.add_paragraph("")
+
+    article = parsed.get("article") or {}
+    media = (article.get("media_name") or "").strip()
+    date = (article.get("article_date") or "").strip()
+    title_art = (article.get("article_title") or "").strip()
+
+    header_bits = []
+    if date:
+        header_bits.append(date)
+    if media:
+        header_bits.append(media)
+    article_header = " ".join(header_bits)
+    if title_art:
+        article_header = f"{article_header} <{title_art}> 제하의 보도임".strip()
+    if article_header:
+        doc.add_paragraph(f" ○ {article_header}")
+        doc.add_paragraph("")
+
+    key_points = article.get("key_points") or []
+    for kp in key_points:
+        if kp and kp.strip():
+            doc.add_paragraph(f"   - {kp.strip()}")
+    if key_points:
+        doc.add_paragraph("")
+
+    # ── 2. 부처 입장 ──
+    ministry = (parsed.get("ministry_name") or "○○부").strip()
+    doc.add_paragraph(f"2. 동 보도내용에 대한 {ministry}의 입장")
+    doc.add_paragraph("")
+
+    for p in parsed.get("position_paragraphs") or []:
+        if p and p.strip():
+            doc.add_paragraph(f" ○ {p.strip()}")
+            doc.add_paragraph("")
+
+    # ── 담당자 영역 ──
+    contacts = parsed.get("contacts") or []
+    if contacts:
+        doc.add_paragraph("─" * 40)
+        doc.add_paragraph("")
+        for c in contacts:
+            div = (c.get("division") or "").strip()
+            dept = (c.get("department_role") or "").strip()
+            header_line = " / ".join([s for s in [div, dept] if s])
+            if header_line:
+                doc.add_paragraph(header_line)
+
+            mgr_role = (c.get("manager_role") or "").strip()
+            mgr_name = (c.get("manager_name") or "").strip()
+            mgr_phone = (c.get("manager_phone") or "").strip()
+            if mgr_name or mgr_role:
+                role_label = mgr_role if mgr_role else "책임자"
+                phone_suffix = f" ({mgr_phone})" if mgr_phone else ""
+                doc.add_paragraph(f"  · 책임자: {role_label} {mgr_name}{phone_suffix}".rstrip())
+
+            staff_role = (c.get("staff_role") or "").strip()
+            staff_name = (c.get("staff_name") or "").strip()
+            staff_phone = (c.get("staff_phone") or "").strip()
+            if staff_name or staff_role:
+                role_label = staff_role if staff_role else "담당자"
+                phone_suffix = f" ({staff_phone})" if staff_phone else ""
+                doc.add_paragraph(f"  · 담당자: {role_label} {staff_name}{phone_suffix}".rstrip())
+            doc.add_paragraph("")
+
+    with tempfile.NamedTemporaryFile(suffix=".hwpx", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        doc.save_to_path(tmp_path)
+        return Path(tmp_path).read_bytes()
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)

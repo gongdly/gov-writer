@@ -23,6 +23,8 @@ from pydantic import BaseModel
 from ..exporters import (
     press_to_hwpx_bytes,
     press_to_markdown,
+    explain_to_hwpx_bytes,
+    explain_to_markdown,
     safe_filename,
     speech_to_hwpx_bytes,
     speech_to_markdown,
@@ -153,6 +155,95 @@ async def download_press_hwpx(body: PressDownloadRequest):
         raise HTTPException(500, f"HWPX 변환 실패: {e}")
 
     fname = safe_filename(body.title, "보도자료") + ".hwpx"
+    return Response(
+        content=hwpx_bytes,
+        media_type="application/vnd.hancom.hwpx",
+        headers={"Content-Disposition": _content_disposition(fname)},
+    )
+
+
+# ─── 설명자료 다운로드 (Phase 12) ───
+
+
+class ExplainContact(BaseModel):
+    """담당자 단위. 모든 필드 선택, 사용자 입력값만 출력됨."""
+    division: str = ""             # (중앙정부) / (지방정부) 등 구분
+    department_role: str = ""       # 실/국 + 과 (예: "인공지능정부실 / 디지털보안정책과")
+    manager_role: str = ""          # 책임자 직급 (예: "과장")
+    manager_name: str = ""          # 책임자 이름
+    manager_phone: str = ""         # 책임자 연락처
+    staff_role: str = ""            # 담당자 직급 (예: "사무관")
+    staff_name: str = ""            # 담당자 이름
+    staff_phone: str = ""           # 담당자 연락처
+
+
+class ExplainArticle(BaseModel):
+    media_name: str = ""
+    article_date: str = ""
+    article_title: str = ""
+    key_points: list[str] = []
+
+
+class ExplainDownloadRequest(BaseModel):
+    """설명자료 다운로드 요청.
+
+    🔒 contacts 영역은 사용자가 폼에서 입력한 값. AI가 만든 값 X.
+    """
+    title: str = ""
+    report_date: str = ""
+    ministry_name: str = ""
+    article: ExplainArticle = ExplainArticle()
+    position_paragraphs: list[str] = []
+    contacts: list[ExplainContact] = []
+
+
+def _explain_parsed(body: ExplainDownloadRequest) -> dict:
+    """ExplainDownloadRequest → 변환기 입력 dict."""
+    return {
+        "title": body.title,
+        "report_date": body.report_date,
+        "ministry_name": body.ministry_name,
+        "article": body.article.model_dump(),
+        "position_paragraphs": body.position_paragraphs,
+        "contacts": [c.model_dump() for c in body.contacts],
+    }
+
+
+@router.post("/explain/md")
+async def download_explain_md(body: ExplainDownloadRequest):
+    """설명자료 Markdown 다운로드."""
+    parsed = _explain_parsed(body)
+
+    if not parsed["title"] and not parsed["position_paragraphs"]:
+        raise HTTPException(400, "본문이 비어있습니다")
+
+    try:
+        md_text = explain_to_markdown(parsed)
+    except Exception as e:
+        raise HTTPException(500, f"MD 변환 실패: {e}")
+
+    fname = safe_filename(body.title, "설명자료") + ".md"
+    return Response(
+        content=md_text.encode("utf-8"),
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": _content_disposition(fname)},
+    )
+
+
+@router.post("/explain/hwpx")
+async def download_explain_hwpx(body: ExplainDownloadRequest):
+    """설명자료 HWPX 다운로드."""
+    parsed = _explain_parsed(body)
+
+    if not parsed["title"] and not parsed["position_paragraphs"]:
+        raise HTTPException(400, "본문이 비어있습니다")
+
+    try:
+        hwpx_bytes = explain_to_hwpx_bytes(parsed)
+    except Exception as e:
+        raise HTTPException(500, f"HWPX 변환 실패: {e}")
+
+    fname = safe_filename(body.title, "설명자료") + ".hwpx"
     return Response(
         content=hwpx_bytes,
         media_type="application/vnd.hancom.hwpx",

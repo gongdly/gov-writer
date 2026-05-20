@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { FileText, Megaphone, Users, History, Settings } from 'lucide-react'
+import { FileText, Megaphone, MessageCircleQuestion, Users, History, Settings } from 'lucide-react'
 
 export default function HubPage() {
   return (
@@ -8,7 +8,7 @@ export default function HubPage() {
         <header className="text-center pt-6 sm:pt-8 pb-8 sm:pb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium mb-4">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-            v0.7 · 옛 자산 모두 통합
+            v0.8 · 설명자료 작성기 추가
           </div>
           <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 mb-3">
             gov-writer
@@ -20,7 +20,7 @@ export default function HubPage() {
           <p className="text-xs sm:text-sm font-semibold text-slate-500 uppercase tracking-wide mb-4 text-center">
             어떤 문서를 작성하시겠어요?
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
             <Link
               to="/write?type=speech"
               className="group bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all p-5 sm:p-6 active:scale-[0.98]"
@@ -29,11 +29,10 @@ export default function HubPage() {
                 <div className="p-2 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
                   <FileText className="w-5 h-5 text-blue-600" />
                 </div>
-                <h2 className="text-lg font-semibold text-slate-900">말씀자료</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-slate-900">말씀자료</h2>
               </div>
-              <p className="text-sm text-slate-600">
-                행사 축사·기념사·연설문. 페르소나와 행사 정보를 입력하면 5-Layer AI가
-                격식 있는 말씀자료를 작성합니다.
+              <p className="text-xs sm:text-sm text-slate-600">
+                행사 축사·기념사·연설문. 5-Layer AI가 격식 있는 말씀자료를 작성합니다.
               </p>
             </Link>
 
@@ -45,11 +44,28 @@ export default function HubPage() {
                 <div className="p-2 bg-green-50 rounded-lg group-hover:bg-green-100 transition-colors">
                   <Megaphone className="w-5 h-5 text-green-600" />
                 </div>
-                <h2 className="text-lg font-semibold text-slate-900">보도자료</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-slate-900">보도자료</h2>
               </div>
-              <p className="text-sm text-slate-600">
-                부처 보도자료. 정책 정보와 부처 입장을 입력하면 정책브리핑 RAG가
-                유사 사례를 참고하여 본문을 작성합니다.
+              <p className="text-xs sm:text-sm text-slate-600">
+                부처 정책·사업 발표. 사업계획서로부터 표준 양식 보도자료 자동 작성.
+              </p>
+            </Link>
+
+            <Link
+              to="/explain"
+              className="group bg-white rounded-2xl border-2 border-amber-300 hover:border-amber-500 hover:shadow-md transition-all p-5 sm:p-6 active:scale-[0.98] relative"
+            >
+              <span className="absolute -top-2.5 right-3 bg-amber-50 text-amber-800 text-[10px] sm:text-xs px-2 py-0.5 rounded-md font-medium border border-amber-200">
+                NEW
+              </span>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-amber-50 rounded-lg group-hover:bg-amber-100 transition-colors">
+                  <MessageCircleQuestion className="w-5 h-5 text-amber-700" />
+                </div>
+                <h2 className="text-base sm:text-lg font-semibold text-slate-900">설명자료</h2>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-600">
+                언론 보도 해명·반박. 기사 첨부 시 AI가 "주요 보도내용"을 요약합니다.
               </p>
             </Link>
           </div>
@@ -80,7 +96,7 @@ export default function HubPage() {
         </section>
 
         <footer className="mt-12 sm:mt-16 text-center text-xs text-slate-400">
-          gov-writer · v0.7.0 · Phase 5.2 통합 완료
+          gov-writer · v0.8.0 · Phase 12 설명자료 추가
         </footer>
       </div>
     </div>

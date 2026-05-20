@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .api import (
     rag_router, settings_router, press_router, speech_router,
     drafts_router, personas_router, download_router, refine_router,
+    explain_router,
 )
 from .config import get_settings
 
@@ -30,7 +31,7 @@ settings = get_settings()
 app = FastAPI(
     title="gov-writer",
     description="행정문서 통합 작성기",
-    version="0.7.4",
+    version="0.8.0",
 )
 
 if not settings.is_production:
@@ -68,13 +69,14 @@ app.include_router(drafts_router)
 app.include_router(personas_router)
 app.include_router(download_router)
 app.include_router(refine_router)
+app.include_router(explain_router)
 
 
 @app.get("/health")
 async def health() -> dict:
     return {
         "status": "ok",
-        "version": "0.7.4",
+        "version": "0.8.0",
         "environment": settings.ENVIRONMENT,
     }
 
@@ -84,14 +86,14 @@ async def info() -> dict:
     """환경 정보. LLM 키 상태는 노출 안 함 (사용자 localStorage 관리)."""
     return {
         "name": "gov-writer",
-        "version": "0.7.4",
+        "version": "0.8.0",
         "environment": settings.ENVIRONMENT,
         "features": {
             "supabase_configured": settings.has_supabase,
             "policy_briefing_configured": settings.has_policy_briefing,
             "rag_sync_secret_configured": bool(settings.RAG_SYNC_SECRET),
         },
-        "phase": "Phase 11.1 — 인용문 위치 + 본문 풍부함 복원",
+        "phase": "Phase 12 — 설명자료 작성기 추가",
         "security_model": {
             "llm_keys": "client_localStorage",
             "policy_briefing": "server_only",

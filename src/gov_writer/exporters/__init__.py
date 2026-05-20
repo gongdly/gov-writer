@@ -2,15 +2,19 @@
 from .converters import (
     speech_to_markdown,
     press_to_markdown,
+    explain_to_markdown,
     speech_to_hwpx_bytes,
     press_to_hwpx_bytes,
+    explain_to_hwpx_bytes,
     safe_filename,
 )
 
 __all__ = [
     "speech_to_markdown",
     "press_to_markdown",
+    "explain_to_markdown",
     "speech_to_hwpx_bytes",
     "press_to_hwpx_bytes",
+    "explain_to_hwpx_bytes",
     "safe_filename",
 ]
