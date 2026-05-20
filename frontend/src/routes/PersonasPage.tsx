@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowLeft, Users, Plus, Edit2, Trash2, Loader2, AlertCircle, CheckCircle2, X, Settings,
+  ArrowLeft, Users, Plus, Edit2, Trash2, Loader2, AlertCircle, CheckCircle2, X, Settings, Wand2,
 } from 'lucide-react'
+import { getActiveProvider, getStoredKey } from '../hooks/useLLMSettings'
 
 interface Persona {
   id: string
@@ -52,6 +53,11 @@ export default function PersonasPage() {
   const [error, setError] = useState<string | null>(null)
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
+  // Phase 5.2 — 자동 추출
+  const extractFileRef = useRef<HTMLInputElement>(null)
+  const [extracting, setExtracting] = useState(false)
+  const [extractedInitial, setExtractedInitial] = useState<PersonaFormValues | null>(null)
+
   const loadPersonas = async () => {
     setLoading(true)
     setError(null)
@@ -76,6 +82,66 @@ export default function PersonasPage() {
     setTimeout(() => setSuccessMsg(null), 3000)
   }
 
+  // Phase 5.2 — 파일에서 페르소나 자동 추출
+  const handleExtractFromFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const provider = getActiveProvider()
+    const apiKey = getStoredKey(provider)
+    if (!apiKey) {
+      alert('LLM API 키가 필요합니다. /settings에서 등록해주세요.')
+      if (extractFileRef.current) extractFileRef.current.value = ''
+      return
+    }
+
+    setExtracting(true)
+    setError(null)
+    try {
+      const headerKey =
+        provider === 'anthropic' ? 'X-Anthropic-Key'
+        : provider === 'gemini' ? 'X-Gemini-Key'
+        : 'X-OpenAI-Key'
+
+      const fd = new FormData()
+      fd.append('file', file, file.name)
+
+      const res = await fetch('/api/refine/extract-persona', {
+        method: 'POST',
+        headers: { 'X-LLM-Provider': provider, [headerKey]: apiKey },
+        body: fd,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || '추출 실패')
+      }
+      const data = await res.json()
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      const conf = typeof data.confidence === 'number' ? Math.round(data.confidence * 100) : null
+      setExtractedInitial({
+        name: data.name || '',
+        role: data.role || '',
+        organization: data.organization || '',
+        tone: data.tone || '',
+        background: data.background || '',
+      })
+      setMode('create')
+      flashSuccess(
+        conf !== null
+          ? `페르소나 자동 추출 완료 (신뢰도 ${conf}%). 검토 후 저장해주세요.`
+          : '페르소나 자동 추출 완료. 검토 후 저장해주세요.'
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setExtracting(false)
+      if (extractFileRef.current) extractFileRef.current.value = ''
+    }
+  }
+
   const handleCreate = async (values: PersonaFormValues) => {
     try {
       const res = await fetch('/api/personas', {
@@ -86,6 +152,7 @@ export default function PersonasPage() {
       if (!res.ok) throw new Error(await res.text())
       flashSuccess(`"${values.name}" 페르소나가 생성되었습니다`)
       setMode('list')
+      setExtractedInitial(null)
       loadPersonas()
     } catch (e) {
       alert(`생성 실패: ${e instanceof Error ? e.message : e}`)
@@ -125,13 +192,13 @@ export default function PersonasPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" /> 홈
           </Link>
           <div className="flex items-center gap-2">
             <Users className="w-4 h-4 text-slate-600" />
-            <h1 className="text-base font-semibold text-slate-900">페르소나 관리</h1>
+            <h1 className="text-sm sm:text-base font-semibold text-slate-900 truncate">페르소나 관리</h1>
           </div>
           <Link
             to="/settings"
@@ -153,16 +220,34 @@ export default function PersonasPage() {
 
         {mode === 'list' && (
           <>
-            <div className="mb-5 flex items-center justify-between">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-slate-500">
                 자주 쓰는 발화자(장관·국장·과장 등)를 저장하여 작성 시 빠르게 적용합니다.
               </p>
-              <button
-                onClick={() => setMode('create')}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-              >
-                <Plus className="w-3.5 h-3.5" /> 새 페르소나
-              </button>
+              <div className="flex gap-2">
+                <input
+                  ref={extractFileRef}
+                  type="file"
+                  accept=".pdf,.hwp,.hwpx,.doc,.docx,.txt"
+                  hidden
+                  onChange={handleExtractFromFile}
+                />
+                <button
+                  onClick={() => extractFileRef.current?.click()}
+                  disabled={extracting}
+                  title="과거 말씀자료 파일에서 발화자 페르소나를 AI가 자동 추출"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 rounded-lg disabled:opacity-50 font-medium"
+                >
+                  {extracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                  {extracting ? '추출 중...' : '파일에서 자동 추출'}
+                </button>
+                <button
+                  onClick={() => { setExtractedInitial(null); setMode('create') }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 새 페르소나
+                </button>
+              </div>
             </div>
 
             {loading && (
@@ -259,11 +344,11 @@ export default function PersonasPage() {
                     tone: editing.tone || '',
                     background: editing.background || '',
                   }
-                : INIT_FORM
+                : extractedInitial || INIT_FORM
             }
             isEdit={mode === 'edit'}
             onSubmit={mode === 'edit' ? handleUpdate : handleCreate}
-            onCancel={() => { setMode('list'); setEditing(null) }}
+            onCancel={() => { setMode('list'); setEditing(null); setExtractedInitial(null) }}
           />
         )}
       </main>
@@ -324,7 +409,7 @@ function PersonaForm({
           />
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="직책">
             <input
               type="text"

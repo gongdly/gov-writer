@@ -102,7 +102,7 @@ function PressEditor() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" /> 홈
           </Link>
@@ -110,7 +110,7 @@ function PressEditor() {
             <div className="p-1.5 bg-green-50 rounded-lg">
               <Megaphone className="w-4 h-4 text-green-600" />
             </div>
-            <h1 className="text-base font-semibold text-slate-900">보도자료 작성</h1>
+            <h1 className="text-sm sm:text-base font-semibold text-slate-900 truncate">보도자료 작성</h1>
           </div>
           <Link
             to="/settings"
@@ -122,16 +122,16 @@ function PressEditor() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-6">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
         <ApiKeyBanner />
         {/* 단계 진행 */}
-        <div className="mb-6 bg-white rounded-xl border border-slate-200 p-3">
-          <div className="flex items-center justify-between">
+        <div className="mb-4 sm:mb-6 bg-white rounded-xl border border-slate-200 p-2 sm:p-3">
+          <div className="flex items-center justify-between gap-1">
             {STEPS.map((label, i) => (
               <button
                 key={i}
                 onClick={() => setStep(i)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm transition-all min-w-0 ${
                   step === i
                     ? 'bg-green-600 text-white font-medium'
                     : i < step
@@ -140,13 +140,15 @@ function PressEditor() {
                 }`}
               >
                 <span
-                  className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
+                  className={`w-5 h-5 rounded-full flex items-center justify-center text-xs flex-shrink-0 ${
                     step === i ? 'bg-white text-green-700' : i < step ? 'bg-green-100' : 'bg-slate-100'
                   }`}
                 >
                   {i + 1}
                 </span>
-                {label}
+                <span className={step === i ? 'inline' : 'hidden sm:inline'}>
+                  {label}
+                </span>
               </button>
             ))}
           </div>
@@ -699,7 +701,7 @@ function WriteStep({
 
       {/* 담당자 */}
       <Section title="담당자 정보">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <FieldInput
             label="부서"
             value={form.department}
@@ -897,35 +899,35 @@ function PreviewStep({
         <strong>다운로드:</strong> HWPX는 한글에서 바로 열립니다. MD는 텍스트 편집기에서 열어 결재 시스템에 붙여넣으시면 됩니다.
       </div>
 
-      <div className="flex flex-wrap justify-between gap-2 pt-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
         <button
           onClick={onBack}
-          className="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-900"
+          className="px-4 py-2.5 text-sm text-slate-600 hover:text-slate-900 order-first"
         >
           ← 이전 (편집)
         </button>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <button
             onClick={handleCopy}
-            className="px-4 py-2.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 font-medium"
+            className="flex-1 sm:flex-none px-3 sm:px-4 py-2.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 font-medium"
           >
             {copied ? '✓ 복사됨' : '전체 복사'}
           </button>
           <button
             onClick={() => handleDownload('md')}
             disabled={downloading !== null}
-            className="flex items-center gap-1.5 px-4 py-2.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 font-medium"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 font-medium"
           >
             {downloading === 'md' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            MD 다운로드
+            MD
           </button>
           <button
             onClick={() => handleDownload('hwpx')}
             disabled={downloading !== null}
-            className="flex items-center gap-1.5 px-5 py-2.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 font-medium"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 sm:px-5 py-2.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 font-medium"
           >
             {downloading === 'hwpx' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            HWPX 다운로드
+            HWPX
           </button>
         </div>
       </div>

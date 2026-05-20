@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, FileText, Upload, Sparkles, Loader2, AlertCircle, X, Settings,
+  Wand2, RefreshCw,
 } from 'lucide-react'
 import { getActiveProvider, getStoredKey } from '../hooks/useLLMSettings'
 import ApiKeyBanner from '../components/ApiKeyBanner'
@@ -93,9 +94,32 @@ export default function SpeechWriter() {
   const planFileRef = useRef<HTMLInputElement>(null)
   const refFileRef = useRef<HTMLInputElement>(null)
 
+  // Phase 5.2 — 자동 추출 상태
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState<string | null>(null)
+  const [extractMsg, setExtractMsg] = useState<string | null>(null)
+
+  // Phase 5.2 — 저장된 페르소나 목록
+  const [savedPersonas, setSavedPersonas] = useState<Array<{
+    id: string
+    name: string
+    role: string | null
+    organization: string | null
+    tone: string | null
+    background: string | null
+  }>>([])
+
   const provider = getActiveProvider()
   const apiKey = getStoredKey(provider)
   const hasKey = !!apiKey
+
+  // 페르소나 목록 로드 (한 번만)
+  useEffect(() => {
+    fetch('/api/personas')
+      .then((r) => (r.ok ? r.json() : { personas: [] }))
+      .then((data) => setSavedPersonas(data.personas || []))
+      .catch(() => { /* ignore */ })
+  }, [])
 
   const update = <K extends keyof SpeechFormData>(key: K, value: SpeechFormData[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -135,6 +159,77 @@ export default function SpeechWriter() {
         ? prev.audience.filter((a) => a !== key)
         : [...prev.audience, key],
     }))
+  }
+
+  // Phase 5.2 — 행사 계획서 자동 추출
+  const handleExtractEventInfo = async () => {
+    if (!planFile || !apiKey) return
+    setExtracting(true)
+    setExtractError(null)
+    setExtractMsg(null)
+    try {
+      const headerKey =
+        provider === 'anthropic' ? 'X-Anthropic-Key'
+        : provider === 'gemini' ? 'X-Gemini-Key'
+        : 'X-OpenAI-Key'
+
+      const fd = new FormData()
+      fd.append('file', planFile.file, planFile.name)
+
+      const res = await fetch('/api/refine/extract-event-info', {
+        method: 'POST',
+        headers: { 'X-LLM-Provider': provider, [headerKey]: apiKey },
+        body: fd,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || '추출 실패')
+      }
+      const data = await res.json()
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      // 폼에 적용 (값이 있을 때만 덮어쓰기)
+      setForm((prev) => {
+        const next = { ...prev }
+        if (data.event_name) next.eventName = data.event_name
+        if (data.event_date) next.eventDate = data.event_date
+        if (data.event_location) next.eventLocation = data.event_location
+        if (data.event_type && ['chuksa','gyenyeomsa','sinnyeonsa','gyeoryeosa','hwanyeongsa','gaehoesa','iimsa','seomyeonchuksa'].includes(data.event_type)) {
+          next.eventType = data.event_type
+        }
+        if (data.speaker_role && ['minister','vice_minister','director_general','director','head_of_org'].includes(data.speaker_role)) {
+          next.speakerRole = data.speaker_role
+        }
+        if (data.speaker_organization) next.speakerOrganization = data.speaker_organization
+        if (Array.isArray(data.audience) && data.audience.length > 0) {
+          const valid = data.audience.filter((a: string) =>
+            ['public_servant','citizen','expert','student','honoree','foreign_guest','industry','media','internal_staff','local_resident'].includes(a)
+          )
+          if (valid.length > 0) next.audience = valid
+        }
+        if (Array.isArray(data.attendees) && data.attendees.length > 0) {
+          next.attendees = data.attendees.join('\n')
+        }
+        if (Array.isArray(data.key_messages) && data.key_messages.length > 0) {
+          next.keyMessages = data.key_messages.join('\n')
+        }
+        return next
+      })
+
+      const conf = typeof data.confidence === 'number' ? Math.round(data.confidence * 100) : null
+      setExtractMsg(
+        conf !== null
+          ? `자동 채움 완료 (신뢰도 ${conf}%). 결과를 검토 후 수정해주세요.`
+          : '자동 채움 완료. 결과를 검토 후 수정해주세요.'
+      )
+      setTimeout(() => setExtractMsg(null), 6000)
+    } catch (e) {
+      setExtractError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExtracting(false)
+    }
   }
 
   const handleGenerate = async () => {
@@ -267,7 +362,7 @@ export default function SpeechWriter() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" /> 홈
           </Link>
@@ -275,7 +370,7 @@ export default function SpeechWriter() {
             <div className="p-1.5 bg-blue-50 rounded-lg">
               <FileText className="w-4 h-4 text-blue-600" />
             </div>
-            <h1 className="text-base font-semibold text-slate-900">말씀자료 작성</h1>
+            <h1 className="text-sm sm:text-base font-semibold text-slate-900 truncate">말씀자료 작성</h1>
           </div>
           <Link
             to="/settings"
@@ -287,7 +382,7 @@ export default function SpeechWriter() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-8 space-y-5">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-5">
         <ApiKeyBanner />
 
         {/* 행사 계획서 (단일) */}
@@ -312,19 +407,35 @@ export default function SpeechWriter() {
             <p className="text-[10px] text-slate-400 mt-0.5">PDF, HWPX, DOCX, TXT</p>
           </div>
           {planFile && (
-            <div className="mt-2 flex items-center gap-2 px-2 py-1.5 bg-slate-50 rounded text-xs">
-              <span className="text-base">{fIcon(planFile.name)}</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{planFile.name}</p>
-                <p className="text-[10px] text-slate-400">{fSize(planFile.size)}</p>
+            <>
+              <div className="mt-2 flex items-center gap-2 px-2 py-1.5 bg-slate-50 rounded text-xs">
+                <span className="text-base">{fIcon(planFile.name)}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{planFile.name}</p>
+                  <p className="text-[10px] text-slate-400">{fSize(planFile.size)}</p>
+                </div>
+                <button
+                  onClick={() => setPlanFile(null)}
+                  className="p-1 text-slate-400 hover:text-red-600"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </div>
               <button
-                onClick={() => setPlanFile(null)}
-                className="p-1 text-slate-400 hover:text-red-600"
+                onClick={handleExtractEventInfo}
+                disabled={!hasKey || extracting}
+                className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs bg-blue-50 hover:bg-blue-100 text-blue-900 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed font-medium border border-blue-100"
               >
-                <X className="w-3 h-3" />
+                {extracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+                {extracting ? '추출 중... (10-20초)' : 'AI로 폼 자동 채우기'}
               </button>
-            </div>
+              {extractMsg && (
+                <p className="mt-1.5 text-[11px] text-green-700">{extractMsg}</p>
+              )}
+              {extractError && (
+                <p className="mt-1.5 text-[11px] text-red-700">{extractError}</p>
+              )}
+            </>
           )}
         </Section>
 
@@ -391,7 +502,7 @@ export default function SpeechWriter() {
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500"
             />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="일시">
               <input
                 type="text"
@@ -415,7 +526,7 @@ export default function SpeechWriter() {
 
         {/* ② 발화자 */}
         <Section title="② 발화자">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Field label="이름">
               <input
                 type="text"
@@ -436,7 +547,7 @@ export default function SpeechWriter() {
             </Field>
           </div>
           <Field label="직급">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {SPEAKER_ROLES.map((r) => (
                 <button
                   key={r.key}
@@ -467,7 +578,7 @@ export default function SpeechWriter() {
         {/* ③ 행사 유형 · 청중 */}
         <Section title="③ 행사 유형 · 청중">
           <Field label="행사 유형">
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {EVENT_TYPES.map((t) => (
                 <button
                   key={t.key}
@@ -507,7 +618,7 @@ export default function SpeechWriter() {
 
         {/* ④ 분량 */}
         <Section title="④ 분량">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             {LENGTH_OPTIONS.map((opt) => (
               <button
                 key={opt.key}
@@ -578,6 +689,45 @@ export default function SpeechWriter() {
             />
           </Field>
           <Field label="페르소나 (선택) - 발화자 특유의 말투·표현">
+            {savedPersonas.length > 0 && (
+              <div className="mb-2 flex items-center gap-2">
+                <select
+                  onChange={(e) => {
+                    const id = e.target.value
+                    if (!id) return
+                    const p = savedPersonas.find((x) => x.id === id)
+                    if (!p) return
+                    const lines: string[] = []
+                    if (p.role) lines.push(`직책: ${p.role}`)
+                    if (p.organization) lines.push(`소속: ${p.organization}`)
+                    if (p.tone) lines.push(`말투: ${p.tone}`)
+                    if (p.background) lines.push(p.background)
+                    update('personaBlock', lines.join('\n'))
+                    // 발화자 정보도 같이 채움 (비어있을 때만)
+                    setForm((prev) => ({
+                      ...prev,
+                      speakerName: prev.speakerName || p.name,
+                      speakerOrganization: prev.speakerOrganization || p.organization || '',
+                    }))
+                    e.target.value = ''
+                  }}
+                  className="flex-1 px-3 py-1.5 text-xs border border-purple-200 bg-purple-50 text-purple-900 rounded-lg focus:outline-none focus:border-purple-400"
+                >
+                  <option value="">저장된 페르소나에서 불러오기...</option>
+                  {savedPersonas.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.role ? ` · ${p.role}` : ''}{p.organization ? ` (${p.organization})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <Link
+                  to="/personas"
+                  className="text-[10px] text-slate-500 hover:text-slate-900 underline whitespace-nowrap"
+                >
+                  관리
+                </Link>
+              </div>
+            )}
             <textarea
               value={form.personaBlock}
               onChange={(e) => update('personaBlock', e.target.value)}
@@ -585,6 +735,11 @@ export default function SpeechWriter() {
               rows={3}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500"
             />
+            {savedPersonas.length === 0 && (
+              <p className="text-[10px] text-slate-400 mt-1">
+                <Link to="/personas" className="underline hover:text-slate-600">페르소나 관리</Link>에서 자주 쓰는 발화자를 등록하면 여기서 빠르게 불러올 수 있습니다.
+              </p>
+            )}
           </Field>
         </Section>
 
@@ -614,48 +769,55 @@ export default function SpeechWriter() {
         </button>
 
         {result && (
-          <div id="result-section" className="pt-8 space-y-4">
-            <div className="bg-white rounded-2xl border border-slate-200 p-8">
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-                <h2 className="text-base font-semibold text-slate-900">생성 결과</h2>
-                <div className="flex items-center gap-3 text-xs text-slate-500">
-                  <span>{result.char_count.toLocaleString()}자</span>
-                </div>
-              </div>
-              <pre
-                className="text-sm leading-relaxed whitespace-pre-wrap break-words text-slate-800"
-                style={{ fontFamily: 'Pretendard, system-ui, sans-serif' }}
-              >
-                {result.generated_text}
-              </pre>
-            </div>
-            <SpeechResultActions
-              generatedText={result.generated_text}
-              eventName={form.eventName}
-            />
-            <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-900">
-              HWPX는 한글에서 바로 열립니다. 입력 폼을 수정 후 재생성도 가능합니다.
-            </div>
-          </div>
+          <SpeechResultPanel
+            initialText={result.generated_text}
+            eventName={form.eventName}
+            provider={provider}
+            apiKey={apiKey || ''}
+          />
         )}
       </main>
     </div>
   )
 }
 
-function SpeechResultActions({
-  generatedText, eventName,
+/**
+ * Phase 5.2 — 결과 패널 (편집·단락 재생성·톤 조정·다운로드).
+ */
+function SpeechResultPanel({
+  initialText, eventName, provider, apiKey,
 }: {
-  generatedText: string
+  initialText: string
   eventName: string
+  provider: string
+  apiKey: string
 }) {
+  const [text, setText] = useState(initialText)
+  const [editing, setEditing] = useState(false)
   const [copied, setCopied] = useState(false)
   const [downloading, setDownloading] = useState<'md' | 'hwpx' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // 단락 재생성 상태
+  const [regenIndex, setRegenIndex] = useState<number | null>(null)
+  const [regenInstruction, setRegenInstruction] = useState('')
+  const [regenLoading, setRegenLoading] = useState(false)
+
+  // 톤 조정 상태
+  const [showToneMenu, setShowToneMenu] = useState(false)
+  const [toneLoading, setToneLoading] = useState<string | null>(null)
+
+  const headerKey =
+    provider === 'anthropic' ? 'X-Anthropic-Key'
+    : provider === 'gemini' ? 'X-Gemini-Key'
+    : 'X-OpenAI-Key'
+
+  // 단락 분할 (빈 줄 기준)
+  const paragraphs = text.split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean)
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(generatedText)
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
@@ -670,15 +832,9 @@ function SpeechResultActions({
       const res = await fetch(`/api/download/speech/${format}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          generated_text: generatedText,
-          title: eventName,
-        }),
+        body: JSON.stringify({ generated_text: text, title: eventName }),
       })
-      if (!res.ok) {
-        const err = await res.text()
-        throw new Error(err || `${format.toUpperCase()} 변환 실패`)
-      }
+      if (!res.ok) throw new Error(await res.text() || `${format} 변환 실패`)
       const cd = res.headers.get('content-disposition') || ''
       let fname = `말씀자료.${format}`
       const m = cd.match(/filename\*=UTF-8''([^;]+)/i)
@@ -701,41 +857,254 @@ function SpeechResultActions({
     }
   }
 
+  // 단락 재생성
+  const handleRegenerateParagraph = async (index: number) => {
+    if (!apiKey) {
+      setError('API 키가 필요합니다')
+      return
+    }
+    setRegenLoading(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/refine/regenerate-paragraph', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-LLM-Provider': provider,
+          [headerKey]: apiKey,
+        },
+        body: JSON.stringify({
+          full_text: text,
+          target_paragraph: paragraphs[index],
+          instruction: regenInstruction,
+          doc_type: 'speech',
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || '재생성 실패')
+      }
+      const data = await res.json()
+      const newParagraph = data.new_paragraph || ''
+      if (!newParagraph) throw new Error('빈 응답')
+
+      // 해당 단락만 교체
+      const newParagraphs = [...paragraphs]
+      newParagraphs[index] = newParagraph
+      setText(newParagraphs.join('\n\n'))
+      setRegenIndex(null)
+      setRegenInstruction('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRegenLoading(false)
+    }
+  }
+
+  // 톤 조정
+  const handleAdjustTone = async (targetTone: string) => {
+    if (!apiKey) {
+      setError('API 키가 필요합니다')
+      return
+    }
+    setToneLoading(targetTone)
+    setError(null)
+    setShowToneMenu(false)
+    try {
+      const res = await fetch('/api/refine/adjust-tone', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-LLM-Provider': provider,
+          [headerKey]: apiKey,
+        },
+        body: JSON.stringify({
+          full_text: text,
+          target_tone: targetTone,
+          doc_type: 'speech',
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || '톤 조정 실패')
+      }
+      const data = await res.json()
+      if (data.adjusted_text) {
+        setText(data.adjusted_text)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setToneLoading(null)
+    }
+  }
+
   return (
-    <div className="space-y-2">
+    <div id="result-section" className="pt-8 space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200 p-8">
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+          <h2 className="text-base font-semibold text-slate-900">생성 결과</h2>
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span>{text.length.toLocaleString()}자</span>
+            <button
+              onClick={() => setEditing(!editing)}
+              className={`px-2 py-1 rounded ${editing ? 'bg-blue-600 text-white' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+            >
+              {editing ? '편집 종료' : '직접 편집'}
+            </button>
+          </div>
+        </div>
+
+        {editing ? (
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            className="w-full text-sm leading-relaxed font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-200 rounded p-2"
+            style={{ minHeight: '500px', fontFamily: 'Pretendard, system-ui, sans-serif' }}
+          />
+        ) : (
+          <div className="space-y-2">
+            {paragraphs.map((p, i) => (
+              <div key={i} className="group relative">
+                <p
+                  className="text-sm leading-relaxed text-slate-800 py-1"
+                  style={{ fontFamily: 'Pretendard, system-ui, sans-serif' }}
+                >
+                  {p}
+                </p>
+                <button
+                  onClick={() => { setRegenIndex(i); setRegenInstruction('') }}
+                  disabled={!apiKey}
+                  title="이 단락만 다시 생성"
+                  className="absolute -right-1 top-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-white border border-slate-200 rounded text-slate-500 hover:text-blue-600 hover:border-blue-300 disabled:hidden"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 단락 재생성 모달 */}
+      {regenIndex !== null && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => !regenLoading && setRegenIndex(null)}
+        >
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl max-w-2xl w-full p-5 sm:p-6 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-semibold text-slate-900 mb-3">
+              단락 재생성 ({regenIndex + 1}/{paragraphs.length})
+            </h3>
+            <div className="p-3 bg-slate-50 rounded-lg text-xs text-slate-700 mb-3 max-h-32 overflow-y-auto">
+              {paragraphs[regenIndex]}
+            </div>
+            <label className="block text-xs font-medium text-slate-700 mb-1.5">
+              추가 지시 (선택)
+            </label>
+            <textarea
+              value={regenInstruction}
+              onChange={(e) => setRegenInstruction(e.target.value)}
+              placeholder="예: 더 간결하게, 수치 강조, 첫 문장을 질문형으로"
+              rows={2}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setRegenIndex(null)}
+                disabled={regenLoading}
+                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-900"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => handleRegenerateParagraph(regenIndex)}
+                disabled={regenLoading}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+              >
+                {regenLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                {regenLoading ? '재생성 중...' : '재생성'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-700">
           <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
       )}
-      <div className="flex flex-wrap justify-end gap-2">
-        <button
-          onClick={handleCopy}
-          className="px-4 py-2 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 font-medium"
-        >
-          {copied ? '✓ 복사됨' : '전체 복사'}
-        </button>
-        <button
-          onClick={() => handleDownload('md')}
-          disabled={downloading !== null}
-          className="flex items-center gap-1.5 px-4 py-2 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 font-medium"
-        >
-          {downloading === 'md' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-          MD 다운로드
-        </button>
-        <button
-          onClick={() => handleDownload('hwpx')}
-          disabled={downloading !== null}
-          className="flex items-center gap-1.5 px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 font-medium"
-        >
-          {downloading === 'hwpx' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-          HWPX 다운로드
-        </button>
+
+      {/* 액션 버튼 */}
+      <div className="flex flex-wrap justify-between gap-2">
+        {/* 톤 조정 */}
+        <div className="relative">
+          <button
+            onClick={() => setShowToneMenu(!showToneMenu)}
+            disabled={!apiKey || toneLoading !== null}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 font-medium"
+          >
+            {toneLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wand2 className="w-3.5 h-3.5" />}
+            {toneLoading ? '톤 조정 중...' : '톤 조정'}
+          </button>
+          {showToneMenu && (
+            <div className="absolute left-0 bottom-full mb-1 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden z-10 min-w-[180px]">
+              {[
+                { key: 'more_formal', label: '더 격식 있게' },
+                { key: 'less_formal', label: '더 친근하게' },
+                { key: 'more_concise', label: '더 간결하게' },
+                { key: 'more_detailed', label: '더 자세하게' },
+              ].map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => handleAdjustTone(t.key)}
+                  className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleCopy}
+            className="px-4 py-2 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 font-medium"
+          >
+            {copied ? '✓ 복사됨' : '전체 복사'}
+          </button>
+          <button
+            onClick={() => handleDownload('md')}
+            disabled={downloading !== null}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm border border-slate-200 text-slate-700 rounded-lg hover:border-slate-300 hover:bg-slate-50 disabled:opacity-50 font-medium"
+          >
+            {downloading === 'md' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            MD 다운로드
+          </button>
+          <button
+            onClick={() => handleDownload('hwpx')}
+            disabled={downloading !== null}
+            className="flex items-center gap-1.5 px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-50 font-medium"
+          >
+            {downloading === 'hwpx' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            HWPX 다운로드
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-xs text-blue-900">
+        💡 각 단락에 마우스 올리면 <RefreshCw className="w-3 h-3 inline" /> 버튼이 나타납니다. 단락 단위로 재생성하거나, "톤 조정"으로 전체 분위기를 바꿀 수 있습니다.
       </div>
     </div>
   )
 }
+
 
 function Section({
   title, description, children,

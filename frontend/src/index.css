@@ -7,4 +7,31 @@
     @apply bg-white text-slate-900 antialiased;
     font-family: 'Pretendard', system-ui, -apple-system, sans-serif;
   }
+
+  /* iOS 자동 줌인 방지: input/textarea/select 폰트 16px 이상 보장 */
+  @media (max-width: 640px) {
+    input[type="text"],
+    input[type="number"],
+    input[type="email"],
+    input[type="password"],
+    input[type="search"],
+    input[type="url"],
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+
+  /* 터치 영역 최소 보장 (Apple 권장 44px, Material 48px) */
+  @media (max-width: 640px) {
+    button,
+    a[role="button"] {
+      min-height: 36px;
+    }
+  }
+
+  /* 가로 스크롤 방지 */
+  html, body {
+    overflow-x: hidden;
+  }
 }

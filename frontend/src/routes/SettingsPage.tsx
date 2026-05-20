@@ -106,17 +106,17 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
-        <div className="max-w-3xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" />
             홈
           </Link>
-          <h1 className="text-base font-semibold text-slate-900">설정</h1>
+          <h1 className="text-sm sm:text-base font-semibold text-slate-900 truncate">설정</h1>
           <div className="w-12" />
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
         {/* 기본 모델 */}
         <section className="bg-white rounded-2xl border border-slate-200 p-6">
           <h2 className="text-base font-semibold text-slate-900 mb-1">기본 사용 모델</h2>

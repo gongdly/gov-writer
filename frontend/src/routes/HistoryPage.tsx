@@ -101,13 +101,13 @@ export default function HistoryPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="w-4 h-4" /> 홈
           </Link>
           <div className="flex items-center gap-2">
             <FileText className="w-4 h-4 text-slate-600" />
-            <h1 className="text-base font-semibold text-slate-900">작성 이력</h1>
+            <h1 className="text-sm sm:text-base font-semibold text-slate-900 truncate">작성 이력</h1>
           </div>
           <Link
             to="/settings"
@@ -119,7 +119,7 @@ export default function HistoryPage() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-6">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
         {/* 검색·필터 */}
         <div className="mb-5 bg-white rounded-2xl border border-slate-200 p-4">
           <div className="flex gap-2 mb-3">
@@ -231,25 +231,25 @@ export default function HistoryPage() {
                       </h3>
                     </div>
 
-                    <div className="flex flex-shrink-0 gap-1">
+                    <div className="flex flex-shrink-0 gap-0.5 sm:gap-1">
                       <button
                         onClick={() => handleView(d.id)}
                         title="본문 보기"
-                        className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+                        className="p-1.5 sm:p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleReuse(d)}
                         title="이 입력값으로 새로 작성"
-                        className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
+                        className="p-1.5 sm:p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
                       >
                         <RotateCw className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(d.id, d.title)}
                         title="삭제"
-                        className="p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                        className="p-1.5 sm:p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -377,11 +377,11 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col"
+        className="bg-white rounded-t-2xl sm:rounded-2xl max-w-3xl w-full max-h-[90vh] sm:max-h-[85vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-slate-200">
@@ -404,10 +404,10 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
               {draft.title}
             </h2>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
             <button
               onClick={handleCopy}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50"
             >
               {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
               {copied ? '복사됨' : '복사'}
@@ -415,7 +415,7 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
             <button
               onClick={() => handleDownload('md')}
               disabled={downloading !== null}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 disabled:opacity-50"
             >
               {downloading === 'md' && <Loader2 className="w-3 h-3 animate-spin" />}
               MD
@@ -423,14 +423,15 @@ function ViewModal({ draft, onClose }: { draft: DraftDetail; onClose: () => void
             <button
               onClick={() => handleDownload('hwpx')}
               disabled={downloading !== null}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 text-xs bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
             >
               {downloading === 'hwpx' && <Loader2 className="w-3 h-3 animate-spin" />}
               HWPX
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg ml-1"
+              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg sm:ml-1"
+              title="닫기"
             >
               <X className="w-4 h-4" />
             </button>
