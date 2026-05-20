@@ -30,7 +30,7 @@ settings = get_settings()
 app = FastAPI(
     title="gov-writer",
     description="행정문서 통합 작성기",
-    version="0.7.1",
+    version="0.7.2",
 )
 
 if not settings.is_production:
@@ -74,7 +74,7 @@ app.include_router(refine_router)
 async def health() -> dict:
     return {
         "status": "ok",
-        "version": "0.7.1",
+        "version": "0.7.2",
         "environment": settings.ENVIRONMENT,
     }
 
@@ -84,14 +84,14 @@ async def info() -> dict:
     """환경 정보. LLM 키 상태는 노출 안 함 (사용자 localStorage 관리)."""
     return {
         "name": "gov-writer",
-        "version": "0.7.1",
+        "version": "0.7.2",
         "environment": settings.ENVIRONMENT,
         "features": {
             "supabase_configured": settings.has_supabase,
             "policy_briefing_configured": settings.has_policy_briefing,
             "rag_sync_secret_configured": bool(settings.RAG_SYNC_SECRET),
         },
-        "phase": "Phase 9 — 모바일 반응형 완료",
+        "phase": "Phase 10 — AI 자동 작성 토글 추가",
         "security_model": {
             "llm_keys": "client_localStorage",
             "policy_briefing": "server_only",

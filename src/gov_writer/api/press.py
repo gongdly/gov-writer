@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Header, HTTPException, Query, UploadFile
@@ -250,5 +251,195 @@ async def press_draft_with_docs(
             provider=x_llm_provider,
             api_key=api_key,
         )
+    finally:
+        del api_key
+
+
+# ─── Phase 10: AI 자동 작성 (보조 옵션) ───
+
+AUTO_SYSTEM_PROMPT = """당신은 한국 정부 보도자료 작성 전문가입니다.
+사용자가 사업계획서·정책자료를 업로드하면, 그 내용을 분석하여
+완성된 보도자료 초안 JSON을 자동으로 작성합니다.
+
+# 절대 원칙
+1. **원본에 없는 정보는 만들지 않음**
+   - 날짜·금액·인용문·통계는 원본에 있는 것만 사용
+   - 원본에 없으면 해당 필드를 비우거나 일반 표현으로
+2. **부처명·직책·인명은 정확히**
+   - 원본에 명시된 그대로
+   - 원본에 없으면 "○○부", "장관" 같은 일반 표현
+3. **인용문은 원본에 명시된 것만**
+   - 원본에 인용문이 없으면 본문에 인용 없이 작성
+4. **한국 정부 보도자료 표준 양식**
+   - 리드문: "□"로 시작
+   - 본문 단락: " ○"로 시작
+   - 역피라미드 구조
+
+# 자동 작성 항목
+- title: 정책·사업 핵심 한 줄 (40자 이내)
+- subtitle: "- "로 시작 부제 (60자 이내, 선택)
+- lead_paragraph: "□ "로 시작, 누가·언제·무엇·어떻게 압축 (1~2문장)
+- body_paragraphs: 본문 단락 배열 (각 " ○ "로 시작, 3~6개)
+  · 첫 단락: 추진 배경·필요성
+  · 중간 단락: 주요 내용 (정책 세부, 시행일·대상·예산)
+  · 후반 단락: 기대 효과·향후 계획
+- confidence: 추출 신뢰도 (0~1)
+
+# 응답 형식
+오직 JSON만. ```json 블록 없이, 설명 텍스트 없이.
+{
+  "title": "...",
+  "subtitle": "- ...",
+  "lead_paragraph": "□ ...",
+  "body_paragraphs": [" ○ ...", " ○ ..."],
+  "confidence": 0.85
+}"""
+
+
+@router.post("/auto-draft")
+async def press_auto_draft(
+    main_file: UploadFile = File(..., description="사업계획서·정책자료 (필수)"),
+    additional_files: list[UploadFile] = File(default=[], description="추가 참고 자료 (선택)"),
+    ref_texts: str = Form("[]", description="정책브리핑 참조 JSON 배열 (선택)"),
+    instructions: str = Form("", description="추가 지시 (선택)"),
+    x_llm_provider: str = Header("gemini"),
+    x_anthropic_key: Optional[str] = Header(None),
+    x_gemini_key: Optional[str] = Header(None),
+    x_openai_key: Optional[str] = Header(None),
+):
+    """🎯 AI 자동 작성: 사업계획서 → 완성된 보도자료 JSON.
+
+    수동 작성과 달리 사용자가 주제·제목·리드·본문을 입력할 필요 없음.
+    파일 한 개 + 한 번 클릭으로 완성된 초안 생성.
+    응답은 폼에 자동 채워지며, 사용자가 검토·수정 후 미리보기로.
+
+    응답: {title, subtitle, lead_paragraph, body_paragraphs, confidence}
+    """
+    if not main_file.filename:
+        raise HTTPException(400, "사업계획서 파일이 필요합니다")
+
+    api_key = _resolve_user_key(
+        x_llm_provider, x_anthropic_key, x_gemini_key, x_openai_key
+    )
+
+    try:
+        # 1. 메인 파일 추출
+        main_content = await main_file.read()
+        if not main_content:
+            raise HTTPException(400, "메인 파일이 비어있습니다")
+        try:
+            main_text = extract_text(main_file.filename, main_content)
+        except Exception as e:
+            raise HTTPException(400, f"메인 파일 텍스트 추출 실패: {e}")
+        if not main_text.strip():
+            raise HTTPException(400, "메인 파일에서 텍스트를 추출할 수 없습니다")
+
+        # 2. 추가 파일 추출
+        additional_texts: list[str] = []
+        for f in additional_files:
+            if not f.filename:
+                continue
+            content = await f.read()
+            if not content:
+                continue
+            try:
+                text = extract_text(f.filename, content)
+                if text.strip():
+                    additional_texts.append(f"[참고:{f.filename}]\n{text[:3000]}")
+            except Exception:
+                pass
+
+        # 3. 정책브리핑 참조 텍스트
+        try:
+            refs = json.loads(ref_texts) if ref_texts else []
+            if not isinstance(refs, list):
+                refs = []
+        except json.JSONDecodeError:
+            refs = []
+
+        # 4. 사용자 프롬프트 조립
+        prompt_parts = [
+            "# 작성할 보도자료의 주 원본 자료",
+            main_text[:8000],
+        ]
+        if additional_texts:
+            prompt_parts.append("\n# 추가 참고 자료")
+            prompt_parts.extend(t[:2000] for t in additional_texts[:3])
+        if refs:
+            prompt_parts.append("\n# 유사 보도자료 (톤·구조 참고용, 인용 금지)")
+            prompt_parts.extend(str(r)[:1000] for r in refs[:3])
+        if instructions.strip():
+            prompt_parts.append(f"\n# 추가 지시\n{instructions.strip()}")
+        prompt_parts.append(
+            "\n위 자료를 바탕으로 한국 정부 보도자료 JSON을 작성하세요. "
+            "원본에 없는 정보는 만들지 마세요."
+        )
+        user_prompt = "\n\n".join(prompt_parts)
+
+        norm_provider = (
+            "anthropic" if x_llm_provider.lower() in ("claude", "anthropic")
+            else x_llm_provider.lower()
+        )
+
+        try:
+            text = await call_llm(
+                provider=norm_provider,  # type: ignore
+                api_key=api_key,
+                system_prompt=AUTO_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_tokens=3000,
+                temperature=0.4,
+            )
+        except LLMError as e:
+            raise HTTPException(
+                status_code=e.status_code or 500,
+                detail=f"LLM 호출 실패: {e}",
+            )
+
+        # 5. JSON 파싱 (코드 블록 제거)
+        clean = re.sub(r"^```(?:json)?\s*\n?", "", text.strip())
+        clean = re.sub(r"\n?```$", "", clean)
+        match = re.search(r"\{[\s\S]*\}", clean)
+        if not match:
+            return {
+                "error": "AI 응답에서 JSON을 찾을 수 없습니다",
+                "raw_text": text[:500],
+                "title": "",
+                "subtitle": "",
+                "lead_paragraph": "",
+                "body_paragraphs": [],
+                "confidence": 0,
+            }
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return {
+                "error": "AI 응답 JSON 파싱 실패",
+                "raw_text": text[:500],
+                "title": "",
+                "subtitle": "",
+                "lead_paragraph": "",
+                "body_paragraphs": [],
+                "confidence": 0,
+            }
+
+        # 6. drafts 자동 저장 (실패 무시)
+        try:
+            await create_draft(
+                doc_type="press",
+                title=parsed.get("title", main_file.filename),
+                form_data={
+                    "auto_draft": True,
+                    "main_file": main_file.filename,
+                    "instructions": instructions,
+                },
+                generated_text=json.dumps(parsed, ensure_ascii=False),
+                rag_references=[],
+            )
+        except Exception:
+            pass
+
+        return parsed
+
     finally:
         del api_key

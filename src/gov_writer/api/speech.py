@@ -216,3 +216,183 @@ async def speech_draft_with_docs(
         )
     finally:
         del api_key
+
+
+# ─── Phase 10: AI 자동 작성 (보조 옵션) ───
+
+SPEECH_AUTO_SYSTEM_PROMPT = """당신은 한국 정부 행사 말씀자료(축사·기념사·연설문) 작성 전문가입니다.
+사용자가 행사 계획서를 업로드하면, 그 내용을 분석하여
+완성된 말씀자료를 자동으로 작성합니다.
+
+# 절대 원칙
+1. **원본에 없는 정보는 만들지 않음**
+   - 행사명·일시·장소·참석자는 원본에 있는 것만 사용
+   - 원본에 없으면 일반 표현 ("이 자리에", "여러분")
+2. **인용·일화·통계는 원본에 명시된 것만**
+3. **한국 정부 말씀자료 표준 양식**
+   - 종결어미: ~습니다 / ~겠습니다 / ~바랍니다
+   - 첫 문장: 인사말 ("존경하는 ~ 여러분, 반갑습니다")
+   - 마지막: 감사 인사 ("감사합니다")
+4. **격식 있고 따뜻한 어조** (행사 유형에 맞춰)
+
+# 자동 작성 항목
+원본 행사 계획서에서 다음을 추출·반영하여 말씀자료 본문 작성:
+- 행사명·일시·장소·청중 → 첫 단락 인사·맥락
+- 사업·정책 핵심 → 중간 단락 메시지
+- 향후 계획·당부 → 후반 단락
+- 마무리 → 감사 인사
+
+# 응답 형식
+오직 JSON만. ```json 블록 없이.
+{
+  "title": "○○ 축사",
+  "generated_text": "존경하는 ~ 여러분, 반갑습니다.\n\n오늘 ~\n\n...\n\n감사합니다.",
+  "event_name": "...",
+  "event_date": "...",
+  "event_location": "...",
+  "speaker_role": "minister/vice_minister/director_general/director/head_of_org",
+  "confidence": 0.85
+}
+
+generated_text는 단락 간 빈 줄로 구분된 완성 본문."""
+
+
+@router.post("/auto-draft")
+async def speech_auto_draft(
+    main_file: UploadFile = File(..., description="행사 계획서 (필수)"),
+    additional_files: list[UploadFile] = File(default=[], description="참고 자료 (선택)"),
+    instructions: str = Form("", description="추가 지시 (선택)"),
+    x_llm_provider: str = Header("gemini"),
+    x_anthropic_key: Optional[str] = Header(None),
+    x_gemini_key: Optional[str] = Header(None),
+    x_openai_key: Optional[str] = Header(None),
+):
+    """🎯 AI 자동 작성: 행사 계획서 → 완성된 말씀자료.
+
+    수동 작성과 달리 사용자가 폼을 채울 필요 없음.
+    파일 한 개 + 한 번 클릭으로 행사 정보 추출 + 본문 생성 통합.
+
+    응답: {
+        title, generated_text, event_name, event_date, event_location,
+        speaker_role, confidence
+    }
+    """
+    import re
+
+    if not main_file.filename:
+        raise HTTPException(400, "행사 계획서 파일이 필요합니다")
+
+    api_key = _resolve_user_key(
+        x_llm_provider, x_anthropic_key, x_gemini_key, x_openai_key
+    )
+
+    try:
+        # 1. 메인 파일 추출
+        main_content = await main_file.read()
+        if not main_content:
+            raise HTTPException(400, "메인 파일이 비어있습니다")
+        try:
+            main_text = extract_text(main_file.filename, main_content)
+        except Exception as e:
+            raise HTTPException(400, f"메인 파일 텍스트 추출 실패: {e}")
+        if not main_text.strip():
+            raise HTTPException(400, "메인 파일에서 텍스트를 추출할 수 없습니다")
+
+        # 2. 추가 파일
+        additional_texts: list[str] = []
+        for f in additional_files:
+            if not f.filename:
+                continue
+            content = await f.read()
+            if not content:
+                continue
+            try:
+                text = extract_text(f.filename, content)
+                if text.strip():
+                    additional_texts.append(f"[참고:{f.filename}]\n{text[:3000]}")
+            except Exception:
+                pass
+
+        # 3. 프롬프트 조립
+        prompt_parts = [
+            "# 행사 계획서 (주 원본)",
+            main_text[:8000],
+        ]
+        if additional_texts:
+            prompt_parts.append("\n# 추가 참고 자료")
+            prompt_parts.extend(t[:2000] for t in additional_texts[:3])
+        if instructions.strip():
+            prompt_parts.append(f"\n# 추가 지시\n{instructions.strip()}")
+        prompt_parts.append(
+            "\n위 자료를 바탕으로 한국 정부 행사 말씀자료를 JSON으로 작성하세요. "
+            "원본에 없는 정보는 만들지 마세요."
+        )
+        user_prompt = "\n\n".join(prompt_parts)
+
+        norm_provider = (
+            "anthropic" if x_llm_provider.lower() in ("claude", "anthropic")
+            else x_llm_provider.lower()
+        )
+
+        try:
+            text = await call_llm(
+                provider=norm_provider,  # type: ignore
+                api_key=api_key,
+                system_prompt=SPEECH_AUTO_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_tokens=4000,
+                temperature=0.5,
+            )
+        except LLMError as e:
+            raise HTTPException(
+                status_code=e.status_code or 500,
+                detail=f"LLM 호출 실패: {e}",
+            )
+
+        # 4. JSON 파싱
+        clean = re.sub(r"^```(?:json)?\s*\n?", "", text.strip())
+        clean = re.sub(r"\n?```$", "", clean)
+        match = re.search(r"\{[\s\S]*\}", clean)
+        if not match:
+            return {
+                "error": "AI 응답에서 JSON을 찾을 수 없습니다",
+                "raw_text": text[:500],
+                "title": "",
+                "generated_text": "",
+                "confidence": 0,
+            }
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return {
+                "error": "AI 응답 JSON 파싱 실패",
+                "raw_text": text[:500],
+                "title": "",
+                "generated_text": "",
+                "confidence": 0,
+            }
+
+        # 5. drafts 자동 저장 (실패 무시)
+        try:
+            await create_draft(
+                doc_type="speech",
+                title=parsed.get("title", main_file.filename),
+                form_data={
+                    "auto_draft": True,
+                    "main_file": main_file.filename,
+                    "instructions": instructions,
+                },
+                generated_text=parsed.get("generated_text", ""),
+                rag_references=[],
+            )
+        except Exception:
+            pass
+
+        # 글자수 추가
+        gt = parsed.get("generated_text", "")
+        parsed["char_count"] = len(gt)
+
+        return parsed
+
+    finally:
+        del api_key

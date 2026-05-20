@@ -410,6 +410,9 @@ function WriteStep({
   const [aiInst, setAiInst] = useState('')
   const [aiError, setAiError] = useState('')
 
+  // Phase 10 — 작성 모드 (수동 기본, AI 자동은 보조)
+  const [mode, setMode] = useState<'manual' | 'auto'>('manual')
+
   const provider = getActiveProvider()
   const apiKey = getStoredKey(provider)
   const hasKey = !!apiKey
@@ -524,6 +527,64 @@ function WriteStep({
 
   return (
     <div className="space-y-5">
+      {/* Phase 10 — 작성 모드 토글 (수동/자동) */}
+      <section className="bg-white rounded-2xl border border-slate-200 p-1.5">
+        <div className="grid grid-cols-2 gap-1">
+          <button
+            onClick={() => setMode('manual')}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              mode === 'manual'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            ✍️ 수동 작성
+          </button>
+          <button
+            onClick={() => setMode('auto')}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              mode === 'auto'
+                ? 'bg-blue-600 text-white'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            ✨ AI 자동 작성
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500 px-2 pt-1.5 pb-0.5 text-center">
+          {mode === 'manual'
+            ? '제목·리드·본문을 직접 입력합니다. AI 초안 패널은 보조 도구.'
+            : '사업계획서 한 개로 보도자료 전체를 자동 작성합니다. 결과는 폼에 채워져 검토 가능.'}
+        </p>
+      </section>
+
+      {/* AI 자동 작성 모드 */}
+      {mode === 'auto' && (
+        <AutoDraftSection
+          provider={provider}
+          apiKey={apiKey || ''}
+          hasKey={hasKey}
+          refs={refs}
+          onResult={(parsed) => {
+            // 결과를 폼에 채우고 자동으로 수동 모드로 전환 (검토 편의)
+            setForm((prev) => ({
+              ...prev,
+              title: parsed.title || prev.title,
+              subtitle: parsed.subtitle || prev.subtitle,
+              lead_paragraph: parsed.lead_paragraph || prev.lead_paragraph,
+              body_paragraphs:
+                Array.isArray(parsed.body_paragraphs) && parsed.body_paragraphs.length > 0
+                  ? parsed.body_paragraphs
+                  : prev.body_paragraphs,
+            }))
+            setMode('manual')
+          }}
+        />
+      )}
+
+      {/* 수동 작성 모드 (기존 흐름 그대로) */}
+      {mode === 'manual' && (
+        <>
       {/* AI 패널 */}
       <section className="bg-white rounded-2xl border border-slate-200 p-5">
         <div className="flex items-center gap-2 mb-1">
@@ -743,7 +804,230 @@ function WriteStep({
           다음: 미리보기 →
         </button>
       </div>
+        </>
+      )}
     </div>
+  )
+}
+
+/* ─── Phase 10: AI 자동 작성 (보조 옵션) ─── */
+
+function AutoDraftSection({
+  provider, apiKey, hasKey, refs, onResult,
+}: {
+  provider: string
+  apiKey: string
+  hasKey: boolean
+  refs: SearchResult[]
+  onResult: (parsed: {
+    title?: string
+    subtitle?: string
+    lead_paragraph?: string
+    body_paragraphs?: string[]
+    confidence?: number
+  }) => void
+}) {
+  const [mainFile, setMainFile] = useState<File | null>(null)
+  const [additionalFiles, setAdditionalFiles] = useState<File[]>([])
+  const [instructions, setInstructions] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [info, setInfo] = useState('')
+  const mainRef = useRef<HTMLInputElement>(null)
+  const addRef = useRef<HTMLInputElement>(null)
+
+  const handleMainFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) setMainFile(f)
+    if (mainRef.current) mainRef.current.value = ''
+  }
+
+  const handleAddFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = Array.from(e.target.files || [])
+    if (selected.length) setAdditionalFiles((p) => [...p, ...selected])
+    if (addRef.current) addRef.current.value = ''
+  }
+
+  const handleSubmit = async () => {
+    setError('')
+    setInfo('')
+    if (!hasKey) {
+      setError(`${provider} API 키가 설정되지 않았습니다. 우측 상단 ⚙️에서 등록해주세요.`)
+      return
+    }
+    if (!mainFile) {
+      setError('사업계획서 파일을 업로드해주세요.')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const headerKey =
+        provider === 'anthropic' ? 'X-Anthropic-Key'
+        : provider === 'gemini' ? 'X-Gemini-Key'
+        : 'X-OpenAI-Key'
+
+      const fd = new FormData()
+      fd.append('main_file', mainFile, mainFile.name)
+      additionalFiles.forEach((f) => fd.append('additional_files', f, f.name))
+      // 정책브리핑 참조는 검색 단계에서 선택한 것 활용
+      if (refs.length > 0) {
+        fd.append(
+          'ref_texts',
+          JSON.stringify(refs.slice(0, 3).map((r) => `${r.title}\n${r.body_preview || ''}`))
+        )
+      }
+      if (instructions.trim()) fd.append('instructions', instructions.trim())
+
+      const res = await fetch('/api/press/auto-draft', {
+        method: 'POST',
+        headers: { 'X-LLM-Provider': provider, [headerKey]: apiKey },
+        body: fd,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || '자동 작성 실패')
+      }
+      const data = await res.json()
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      const conf = typeof data.confidence === 'number' ? Math.round(data.confidence * 100) : null
+      setInfo(
+        conf !== null
+          ? `✓ 자동 작성 완료 (신뢰도 ${conf}%). 수동 모드로 전환되었습니다. 폼에서 검토·수정하세요.`
+          : '✓ 자동 작성 완료. 수동 모드로 전환되었습니다. 폼에서 검토·수정하세요.'
+      )
+      onResult(data)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <section className="bg-blue-50/40 rounded-2xl border-2 border-blue-200 p-5">
+      <div className="flex items-center gap-2 mb-2">
+        <Sparkles className="w-4 h-4 text-blue-600" />
+        <h2 className="text-sm font-semibold text-slate-900">AI 자동 작성</h2>
+        {!hasKey && (
+          <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-800 rounded">
+            🔒 API 키 필요
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-slate-600 mb-4">
+        사업계획서 한 개 업로드 + 한 번 클릭으로 제목·리드·본문이 모두 채워집니다.
+        결과는 검토·수정 가능합니다.
+      </p>
+
+      {/* 메인 파일 */}
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          사업계획서 <span className="text-red-500">*</span>
+        </label>
+        <div
+          onClick={() => hasKey && mainRef.current?.click()}
+          className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all ${
+            hasKey ? 'border-blue-300 bg-white hover:border-blue-500' : 'border-slate-200 opacity-60'
+          }`}
+        >
+          <input
+            ref={mainRef}
+            type="file"
+            accept=".pdf,.hwp,.hwpx,.doc,.docx,.txt"
+            hidden
+            onChange={handleMainFile}
+          />
+          <Upload className="w-5 h-5 mx-auto mb-1 text-blue-500" />
+          <p className="text-xs font-medium text-slate-700">
+            {mainFile ? mainFile.name : '클릭하여 파일 선택'}
+          </p>
+          <p className="text-[10px] text-slate-400 mt-0.5">PDF, HWPX, DOCX, TXT</p>
+        </div>
+      </div>
+
+      {/* 추가 파일 (선택) */}
+      <div className="mb-3">
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          추가 참고 자료 (선택)
+        </label>
+        <input
+          ref={addRef}
+          type="file"
+          accept=".pdf,.hwp,.hwpx,.doc,.docx,.txt"
+          multiple
+          hidden
+          onChange={handleAddFiles}
+        />
+        <button
+          onClick={() => addRef.current?.click()}
+          disabled={!hasKey}
+          className="text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+        >
+          + 파일 추가 ({additionalFiles.length})
+        </button>
+        {additionalFiles.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {additionalFiles.map((f, i) => (
+              <li key={i} className="flex items-center gap-2 text-xs text-slate-600">
+                <span>📄 {f.name}</span>
+                <button
+                  onClick={() => setAdditionalFiles((p) => p.filter((_, j) => j !== i))}
+                  className="text-slate-400 hover:text-red-600"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* 정책브리핑 참조 표시 */}
+      {refs.length > 0 && (
+        <div className="mb-3 text-xs text-slate-600 bg-white rounded p-2 border border-slate-200">
+          ℹ️ 1단계에서 선택한 정책브리핑 참조 {refs.length}건이 함께 활용됩니다.
+        </div>
+      )}
+
+      {/* 추가 지시 */}
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-slate-700 mb-1.5">
+          추가 지시 (선택)
+        </label>
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          placeholder="예: 보도일은 5월 25일로, 장관 인용문 포함, 시행일 강조"
+          rows={2}
+          className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-500"
+        />
+      </div>
+
+      {error && (
+        <div className="mb-3 flex items-start gap-2 p-2.5 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+      {info && (
+        <div className="mb-3 p-2.5 bg-green-50 border border-green-100 rounded-lg text-xs text-green-800">
+          {info}
+        </div>
+      )}
+
+      <button
+        onClick={handleSubmit}
+        disabled={!hasKey || !mainFile || loading}
+        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:bg-slate-300 disabled:cursor-not-allowed font-medium text-sm"
+      >
+        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+        {loading ? 'AI가 작성 중... (20-40초)' : 'AI로 보도자료 자동 작성'}
+      </button>
+    </section>
   )
 }
 
