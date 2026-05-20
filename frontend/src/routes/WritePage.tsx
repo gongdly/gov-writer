@@ -830,6 +830,7 @@ function AutoDraftSection({
   const [mainFile, setMainFile] = useState<File | null>(null)
   const [additionalFiles, setAdditionalFiles] = useState<File[]>([])
   const [instructions, setInstructions] = useState('')
+  const [useRefs, setUseRefs] = useState(false) // Phase 11: 기본 OFF
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -870,8 +871,9 @@ function AutoDraftSection({
       const fd = new FormData()
       fd.append('main_file', mainFile, mainFile.name)
       additionalFiles.forEach((f) => fd.append('additional_files', f, f.name))
-      // 정책브리핑 참조는 검색 단계에서 선택한 것 활용
-      if (refs.length > 0) {
+      // Phase 11: 정책브리핑 참조는 사용자가 명시적으로 선택했을 때만
+      fd.append('use_refs', useRefs ? 'true' : 'false')
+      if (useRefs && refs.length > 0) {
         fd.append(
           'ref_texts',
           JSON.stringify(refs.slice(0, 3).map((r) => `${r.title}\n${r.body_preview || ''}`))
@@ -986,10 +988,25 @@ function AutoDraftSection({
         )}
       </div>
 
-      {/* 정책브리핑 참조 표시 */}
+      {/* 정책브리핑 참조 (선택 옵션) */}
       {refs.length > 0 && (
-        <div className="mb-3 text-xs text-slate-600 bg-white rounded p-2 border border-slate-200">
-          ℹ️ 1단계에서 선택한 정책브리핑 참조 {refs.length}건이 함께 활용됩니다.
+        <div className="mb-3 bg-white rounded-lg p-3 border border-slate-200">
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useRefs}
+              onChange={(e) => setUseRefs(e.target.checked)}
+              className="mt-0.5"
+            />
+            <div className="flex-1 text-xs">
+              <div className="font-medium text-slate-700">
+                정책브리핑 참조 {refs.length}건 함께 사용
+              </div>
+              <p className="text-slate-500 mt-0.5">
+                중앙부처 비슷한 정책 발표 사례의 톤·문체 학습. 지자체·신규 사업에는 권장하지 않음 (수치·인용 오염 위험).
+              </p>
+            </div>
+          </label>
         </div>
       )}
 
@@ -1150,6 +1167,14 @@ function PreviewStep({
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-2xl border border-slate-200 p-8">
+        {/* 보도자료 헤더 */}
+        <div className="pb-4 mb-4 border-b-2 border-slate-300">
+          <p className="text-sm font-bold text-slate-900 mb-1">[보도자료]</p>
+          {form.distribute_date && (
+            <p className="text-xs text-slate-600">배포일시: {form.distribute_date}</p>
+          )}
+        </div>
+
         <h1 className="text-2xl font-bold text-slate-900 mb-2">{form.title || '(제목 없음)'}</h1>
         {form.subtitle && (
           <p className="text-base text-slate-600 mb-6">{form.subtitle}</p>
@@ -1162,12 +1187,11 @@ function PreviewStep({
           ))}
         </div>
 
-        {(form.department || form.contact_person || form.contact_phone || form.distribute_date) && (
-          <div className="mt-8 pt-4 border-t border-slate-200 text-xs text-slate-600 space-y-0.5">
-            {form.department && <p>담당 부서: {form.department}</p>}
-            {form.contact_person && <p>담당자: {form.contact_person}</p>}
-            {form.contact_phone && <p>연락처: {form.contact_phone}</p>}
-            {form.distribute_date && <p>배포일자: {form.distribute_date}</p>}
+        {(form.department || form.contact_person || form.contact_phone) && (
+          <div className="mt-8 pt-4 border-t-2 border-slate-300 text-xs text-slate-700 space-y-0.5">
+            {form.department && <p>담당부서: {form.department}</p>}
+            {form.contact_person && <p>담 당 자: {form.contact_person}</p>}
+            {form.contact_phone && <p>연 락 처: {form.contact_phone}</p>}
           </div>
         )}
       </div>

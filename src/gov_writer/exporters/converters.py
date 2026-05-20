@@ -35,10 +35,26 @@ def speech_to_markdown(generated_text: str, *, title: str = "") -> str:
 def press_to_markdown(parsed: dict) -> str:
     """보도자료 JSON 파싱 결과 → Markdown.
 
-    parsed 구조 (옛 press-docs-mcp 형식 그대로):
-        {title, subtitle, lead_paragraph, body_paragraphs: list[str]}
+    한국 정부 보도자료 표준 양식:
+        [보도자료]
+        배포일자
+        ──
+        제목
+        부제
+        리드문
+        본문
+        ──
+        담당부서·담당자·연락처
     """
-    parts: list[str] = []
+    parts: list[str] = ["[보도자료]"]
+
+    distribute_date = (parsed.get("distribute_date") or "").strip()
+    if distribute_date:
+        parts.append(f"배포일시: {distribute_date}")
+
+    parts.append("─" * 40)
+    parts.append("")
+
     title = (parsed.get("title") or "보도자료").strip()
     parts.append(f"# {title}")
 
@@ -57,6 +73,21 @@ def press_to_markdown(parsed: dict) -> str:
         if p and p.strip():
             parts.append("")
             parts.append(p.strip())
+
+    # 담당자 영역
+    department = (parsed.get("department") or "").strip()
+    contact_person = (parsed.get("contact_person") or "").strip()
+    contact_phone = (parsed.get("contact_phone") or "").strip()
+
+    if department or contact_person or contact_phone:
+        parts.append("")
+        parts.append("─" * 40)
+        if department:
+            parts.append(f"담당부서: {department}")
+        if contact_person:
+            parts.append(f"담 당 자: {contact_person}")
+        if contact_phone:
+            parts.append(f"연 락 처: {contact_phone}")
 
     return "\n".join(parts) + "\n"
 
@@ -119,20 +150,31 @@ def speech_to_hwpx_bytes(generated_text: str, *, title: str = "") -> bytes:
 def press_to_hwpx_bytes(parsed: dict) -> bytes:
     """보도자료 → HWPX 바이트.
 
-    parsed 구조 (옛 press-docs-mcp 형식):
-        {title, subtitle, lead_paragraph, body_paragraphs: list[str]}
-
-    구조:
-        - 제목 단락
-        - 부제 단락 (있으면)
-        - 빈 줄
-        - 리드문 단락 (있으면)
-        - 본문 단락들
+    한국 정부 보도자료 표준 양식:
+        [보도자료] 헤더
+        배포일자
+        ── 구분선
+        제목
+        부제
+        리드문
+        본문 단락들
+        ── 구분선
+        담당부서·담당자·연락처
     """
     from hwpx import HwpxDocument
 
     doc = HwpxDocument.new()
 
+    # ── 헤더 ──
+    doc.add_paragraph("[보도자료]")
+
+    distribute_date = (parsed.get("distribute_date") or "").strip()
+    if distribute_date:
+        doc.add_paragraph(f"배포일시: {distribute_date}")
+
+    doc.add_paragraph("─" * 40)
+
+    # ── 본문 ──
     title = (parsed.get("title") or "보도자료").strip()
     doc.add_paragraph(title)
 
@@ -154,8 +196,22 @@ def press_to_hwpx_bytes(parsed: dict) -> bytes:
             has_body = True
 
     if not has_body and not lead:
-        # 본문이 완전히 비어있으면 최소 1개 단락
         doc.add_paragraph("(본문 없음)")
+
+    # ── 담당자 영역 ──
+    department = (parsed.get("department") or "").strip()
+    contact_person = (parsed.get("contact_person") or "").strip()
+    contact_phone = (parsed.get("contact_phone") or "").strip()
+
+    if department or contact_person or contact_phone:
+        doc.add_paragraph("")  # 빈 줄
+        doc.add_paragraph("─" * 40)
+        if department:
+            doc.add_paragraph(f"담당부서: {department}")
+        if contact_person:
+            doc.add_paragraph(f"담 당 자: {contact_person}")
+        if contact_phone:
+            doc.add_paragraph(f"연 락 처: {contact_phone}")
 
     with tempfile.NamedTemporaryFile(suffix=".hwpx", delete=False) as tmp:
         tmp_path = tmp.name

@@ -103,36 +103,25 @@ class PressDownloadRequest(BaseModel):
     distribute_date: str = ""
 
 
-def _append_contact(parsed: dict, req: PressDownloadRequest) -> dict:
-    """담당자 정보를 본문 끝에 추가."""
-    info_parts = []
-    if req.distribute_date.strip():
-        info_parts.append(f"배포일자: {req.distribute_date.strip()}")
-    if req.department.strip():
-        info_parts.append(f"담당 부서: {req.department.strip()}")
-    if req.contact_person.strip():
-        info_parts.append(f"담당자: {req.contact_person.strip()}")
-    if req.contact_phone.strip():
-        info_parts.append(f"연락처: {req.contact_phone.strip()}")
-    if info_parts:
-        parsed = dict(parsed)
-        body = list(parsed.get("body_paragraphs") or [])
-        body.append("")  # 구분 빈 단락
-        body.extend(info_parts)
-        parsed["body_paragraphs"] = body
-    return parsed
+def _press_parsed(body: PressDownloadRequest) -> dict:
+    """PressDownloadRequest → 변환기 입력 dict."""
+    return {
+        "title": body.title,
+        "subtitle": body.subtitle,
+        "lead_paragraph": body.lead_paragraph,
+        "body_paragraphs": body.body_paragraphs,
+        # 담당자 영역 (변환기가 표준 보도자료 양식으로 배치)
+        "department": body.department,
+        "contact_person": body.contact_person,
+        "contact_phone": body.contact_phone,
+        "distribute_date": body.distribute_date,
+    }
 
 
 @router.post("/press/md")
 async def download_press_md(body: PressDownloadRequest):
     """보도자료 Markdown 다운로드."""
-    parsed = {
-        "title": body.title,
-        "subtitle": body.subtitle,
-        "lead_paragraph": body.lead_paragraph,
-        "body_paragraphs": body.body_paragraphs,
-    }
-    parsed = _append_contact(parsed, body)
+    parsed = _press_parsed(body)
 
     if not parsed["title"] and not parsed["lead_paragraph"] and not parsed["body_paragraphs"]:
         raise HTTPException(400, "본문이 비어있습니다")
@@ -153,13 +142,7 @@ async def download_press_md(body: PressDownloadRequest):
 @router.post("/press/hwpx")
 async def download_press_hwpx(body: PressDownloadRequest):
     """보도자료 HWPX 다운로드."""
-    parsed = {
-        "title": body.title,
-        "subtitle": body.subtitle,
-        "lead_paragraph": body.lead_paragraph,
-        "body_paragraphs": body.body_paragraphs,
-    }
-    parsed = _append_contact(parsed, body)
+    parsed = _press_parsed(body)
 
     if not parsed["title"] and not parsed["lead_paragraph"] and not parsed["body_paragraphs"]:
         raise HTTPException(400, "본문이 비어있습니다")
