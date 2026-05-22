@@ -61,13 +61,17 @@ def _strip_html(text: str) -> str:
 
 
 def _get_text(elem, tag: str) -> str:
-    """XML 자식 노드 텍스트. 없으면 빈 문자열."""
+    """XML 자식 노드 텍스트. 없으면 빈 문자열.
+
+    HTML 엔티티(&quot; &amp; &lt; &gt; &#39; 등) 자동 디코딩.
+    정책브리핑 API가 제목·부제에 따옴표를 &quot;로 인코딩해서 보내는 문제 대응.
+    """
     if elem is None:
         return ""
     child = elem.find(tag)
     if child is None or child.text is None:
         return ""
-    return child.text.strip()
+    return html.unescape(child.text.strip())
 
 
 def _format_date(raw: str) -> str:
