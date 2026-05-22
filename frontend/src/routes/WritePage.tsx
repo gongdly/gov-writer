@@ -198,6 +198,7 @@ function SearchStep({
   const [page, setPage] = useState(1)
   const [showMinDrop, setShowMinDrop] = useState(false)
   const [expandedNote, setExpandedNote] = useState('')
+  const [earlyStop, setEarlyStop] = useState(false)
   const PER = 5
 
   const search = async () => {
@@ -214,6 +215,7 @@ function SearchStep({
       for (const d of expansionChain) {
         const params = new URLSearchParams({ q: query, days: String(d), limit: '50' })
         if (ministry) params.set('ministry', ministry)
+        if (earlyStop) params.set('early_stop', 'true')
         const res = await fetch(`/api/press/search?${params}`)
         if (!res.ok) throw new Error(await res.text())
         const data = await res.json()
@@ -304,6 +306,18 @@ function SearchStep({
             </select>
           </div>
         </div>
+        <label className="flex items-start gap-2 mb-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={earlyStop}
+            onChange={(e) => setEarlyStop(e.target.checked)}
+            className="mt-0.5"
+          />
+          <div className="text-xs">
+            <span className="font-medium text-slate-700">⚡ 빠른 검색</span>
+            <span className="text-slate-500"> — 필요한 만큼만 조회하고 즉시 결과 표시 (30·90일 검색 시 속도↑)</span>
+          </div>
+        </label>
         <button
           onClick={search}
           disabled={loading}
