@@ -40,7 +40,7 @@ router = APIRouter(prefix="/api/press", tags=["press"])
 async def press_search(
     q: str = Query("", description="키워드"),
     ministry: Optional[str] = Query(None, description="부처 필터"),
-    days: int = Query(3, ge=1, le=3),
+    days: int = Query(3, ge=1, le=90),
     limit: int = Query(50, ge=1, le=100),
 ):
     api_key = os.environ.get("POLICY_BRIEFING_API_KEY", "")
