@@ -42,6 +42,7 @@ async def press_search(
     ministry: Optional[str] = Query(None, description="부처 필터"),
     days: int = Query(3, ge=1, le=90),
     limit: int = Query(50, ge=1, le=100),
+    early_stop: bool = Query(False, description="True면 필요한 만큼만 조회 후 즉시 종료 (빠른 검색)"),
 ):
     api_key = os.environ.get("POLICY_BRIEFING_API_KEY", "")
     if not api_key:
@@ -49,6 +50,7 @@ async def press_search(
     try:
         results = await search_press_releases(
             api_key=api_key, query=q, ministry=ministry, days=days, limit=limit,
+            early_stop=early_stop,
         )
         return {"results": results, "count": len(results)}
     except Exception as e:
