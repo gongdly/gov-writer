@@ -197,23 +197,37 @@ function SearchStep({
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
   const [showMinDrop, setShowMinDrop] = useState(false)
+  const [expandedNote, setExpandedNote] = useState('')
   const PER = 5
 
   const search = async () => {
     setLoading(true)
     setError('')
+    setExpandedNote('')
     setPage(1)
     try {
-      const params = new URLSearchParams({
-        q: query,
-        days: String(days),
-        limit: '50',
-      })
-      if (ministry) params.set('ministry', ministry)
-      const res = await fetch(`/api/press/search?${params}`)
-      if (!res.ok) throw new Error(await res.text())
-      const data = await res.json()
-      setResults(data.results || [])
+      // Phase 11 옛 설계: 결과 0건이면 자동 확장 (3 → 7 → 30 → 90)
+      const expansionChain = [days, 7, 30, 90].filter((d, i, arr) => d >= days && arr.indexOf(d) === i)
+      let finalResults: any[] = []
+      let usedDays = days
+
+      for (const d of expansionChain) {
+        const params = new URLSearchParams({ q: query, days: String(d), limit: '50' })
+        if (ministry) params.set('ministry', ministry)
+        const res = await fetch(`/api/press/search?${params}`)
+        if (!res.ok) throw new Error(await res.text())
+        const data = await res.json()
+        finalResults = data.results || []
+        usedDays = d
+        if (finalResults.length > 0) break
+      }
+
+      setResults(finalResults)
+      if (usedDays !== days && finalResults.length > 0) {
+        setExpandedNote(`최근 ${days}일에 결과가 없어 최근 ${usedDays}일로 확장하여 ${finalResults.length}건 찾았습니다.`)
+      } else if (finalResults.length === 0) {
+        setExpandedNote(`최근 90일까지 검색했지만 결과가 없습니다. 키워드를 바꿔보세요.`)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -283,9 +297,10 @@ function SearchStep({
               onChange={(e) => setDays(Number(e.target.value))}
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
             >
-              <option value={1}>최근 1일</option>
-              <option value={2}>최근 2일</option>
               <option value={3}>최근 3일</option>
+              <option value={7}>최근 7일</option>
+              <option value={30}>최근 30일</option>
+              <option value={90}>최근 90일</option>
             </select>
           </div>
         </div>
@@ -301,6 +316,11 @@ function SearchStep({
           <div className="mt-3 flex items-start gap-2 p-2 bg-red-50 border border-red-100 rounded-lg">
             <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-red-700">{error}</p>
+          </div>
+        )}
+        {expandedNote && !error && (
+          <div className="mt-3 p-2 bg-blue-50 border border-blue-100 rounded-lg">
+            <p className="text-xs text-blue-800">ℹ️ {expandedNote}</p>
           </div>
         )}
       </section>
