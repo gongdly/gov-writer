@@ -229,34 +229,60 @@ async def get_press_release(
     news_item_id: str,
     days: int = 3,
 ) -> dict | None:
-    """보도자료 단건 상세 조회."""
-    if days > 3:
-        days = 3
+    """보도자료 단건 상세 조회.
+
+    days > 3이면 3일 chunk로 분할 호출 (찾으면 즉시 반환).
+    """
+    if days < 1:
+        days = 1
+    if days > 90:
+        days = 90
 
     today = datetime.now(timezone.utc) + timedelta(hours=9)
-    start = (today - timedelta(days=days)).strftime("%Y%m%d")
-    end = today.strftime("%Y%m%d")
-
-    items = await _call_api(api_key, start, end)
-    for it in items:
-        if it["news_item_id"] == news_item_id:
-            return it
+    remaining = days
+    chunk_end = today
+    while remaining > 0:
+        chunk_days = min(3, remaining)
+        chunk_start = chunk_end - timedelta(days=chunk_days)
+        items = await _call_api(
+            api_key,
+            chunk_start.strftime("%Y%m%d"),
+            chunk_end.strftime("%Y%m%d"),
+        )
+        for it in items:
+            if it["news_item_id"] == news_item_id:
+                return it
+        remaining -= chunk_days
+        chunk_end = chunk_start
     return None
 
 
 async def list_ministries(*, api_key: str, days: int = 3) -> list[str]:
-    """최근 보도자료에 등장한 부처 목록 (중복 제거)."""
-    if days > 3:
-        days = 3
+    """최근 보도자료에 등장한 부처 목록 (중복 제거).
+
+    days > 3이면 3일 chunk로 분할 호출 후 부처 병합.
+    """
+    if days < 1:
+        days = 1
+    if days > 90:
+        days = 90
 
     today = datetime.now(timezone.utc) + timedelta(hours=9)
-    start = (today - timedelta(days=days)).strftime("%Y%m%d")
-    end = today.strftime("%Y%m%d")
-
-    items = await _call_api(api_key, start, end)
     ministries = set()
-    for it in items:
-        m = it.get("ministry", "").strip()
-        if m:
-            ministries.add(m)
+    remaining = days
+    chunk_end = today
+    while remaining > 0:
+        chunk_days = min(3, remaining)
+        chunk_start = chunk_end - timedelta(days=chunk_days)
+        items = await _call_api(
+            api_key,
+            chunk_start.strftime("%Y%m%d"),
+            chunk_end.strftime("%Y%m%d"),
+        )
+        for it in items:
+            m = it.get("ministry", "").strip()
+            if m:
+                ministries.add(m)
+        remaining -= chunk_days
+        chunk_end = chunk_start
     return sorted(ministries)
