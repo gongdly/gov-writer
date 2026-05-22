@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,8 @@ import httpx
 from lxml import etree
 
 from .ministries import normalize_ministry_name
+
+log = logging.getLogger(__name__)
 
 API_URL = "https://apis.data.go.kr/1371000/pressReleaseService/pressReleaseList"
 
@@ -144,11 +147,17 @@ async def search_press_releases(
     ministry: str | None = None,
     days: int = 3,
     limit: int = 20,
+    early_stop: bool = False,
 ) -> list[dict]:
     """보도자료 검색.
 
     정책브리핑 API는 한 번에 최대 3일 조회만 허용하므로,
     days > 3이면 3일 단위로 chunk 분할하여 여러 번 호출 후 결과 병합.
+
+    옛 press-docs-mcp 검증된 로직:
+    - 가장 최근 chunk부터 거꾸로 호출
+    - chunk 사이는 1일 띄워서 중복 방지
+    - chunk 호출 실패해도 로그만 남기고 다음 chunk 진행
 
     Args:
         api_key: POLICY_BRIEFING_API_KEY
@@ -156,6 +165,8 @@ async def search_press_releases(
         ministry: 부처 필터
         days: 조회 기간 (1~90, 3 초과 시 자동 chunking)
         limit: 최대 반환 건수
+        early_stop: True면 결과 limit*3개 모이는 즉시 종료 (빠른 검색).
+                    기본 False (사용자가 선택한 기간 전체 조회).
     """
     if days < 1:
         days = 1
@@ -163,28 +174,35 @@ async def search_press_releases(
         days = 90
 
     today = datetime.now(timezone.utc) + timedelta(hours=9)  # KST
+    start_boundary = today - timedelta(days=days)
 
-    # 3일씩 chunk 분할: 가장 최근 chunk부터 거꾸로 호출
+    # 3일씩 chunk 분할: 가장 최근부터 거꾸로
     items: list[dict] = []
     seen_ids: set[str] = set()
-    remaining = days
     chunk_end = today
-    while remaining > 0:
-        chunk_days = min(3, remaining)
-        chunk_start = chunk_end - timedelta(days=chunk_days)
+    while chunk_end > start_boundary:
+        chunk_start = max(start_boundary, chunk_end - timedelta(days=3))
         start_str = chunk_start.strftime("%Y%m%d")
         end_str = chunk_end.strftime("%Y%m%d")
 
-        chunk_items = await _call_api(api_key, start_str, end_str)
-        # 중복 제거 (chunk 경계 겹침 방지)
-        for it in chunk_items:
-            nid = it.get("news_item_id")
-            if nid and nid not in seen_ids:
-                items.append(it)
-                seen_ids.add(nid)
+        try:
+            chunk_items = await _call_api(api_key, start_str, end_str)
+            # 중복 제거 (캐시 hit이나 chunk 경계 안전장치)
+            for it in chunk_items:
+                nid = it.get("news_item_id")
+                if nid and nid not in seen_ids:
+                    items.append(it)
+                    seen_ids.add(nid)
+        except Exception as e:
+            # chunk 하나 실패해도 다음 chunk 계속 진행
+            log.warning(f"API chunk {start_str}~{end_str} 실패: {e}")
 
-        remaining -= chunk_days
-        chunk_end = chunk_start
+        # 조기 종료 (사용자 선택, 기본 OFF)
+        if early_stop and len(items) >= limit * 3:
+            break
+
+        # 다음 chunk: 1일 띄워서 중복 호출 방지
+        chunk_end = chunk_start - timedelta(days=1)
 
     # 부처 필터
     if ministry:
@@ -231,7 +249,7 @@ async def get_press_release(
 ) -> dict | None:
     """보도자료 단건 상세 조회.
 
-    days > 3이면 3일 chunk로 분할 호출 (찾으면 즉시 반환).
+    days > 3이면 3일 chunk 분할 (옛 로직: 1일 띄움 + 찾으면 즉시 반환).
     """
     if days < 1:
         days = 1
@@ -239,28 +257,29 @@ async def get_press_release(
         days = 90
 
     today = datetime.now(timezone.utc) + timedelta(hours=9)
-    remaining = days
+    start_boundary = today - timedelta(days=days)
     chunk_end = today
-    while remaining > 0:
-        chunk_days = min(3, remaining)
-        chunk_start = chunk_end - timedelta(days=chunk_days)
-        items = await _call_api(
-            api_key,
-            chunk_start.strftime("%Y%m%d"),
-            chunk_end.strftime("%Y%m%d"),
-        )
-        for it in items:
-            if it["news_item_id"] == news_item_id:
-                return it
-        remaining -= chunk_days
-        chunk_end = chunk_start
+    while chunk_end > start_boundary:
+        chunk_start = max(start_boundary, chunk_end - timedelta(days=3))
+        try:
+            items = await _call_api(
+                api_key,
+                chunk_start.strftime("%Y%m%d"),
+                chunk_end.strftime("%Y%m%d"),
+            )
+            for it in items:
+                if it["news_item_id"] == news_item_id:
+                    return it
+        except Exception as e:
+            log.warning(f"detail chunk 실패: {e}")
+        chunk_end = chunk_start - timedelta(days=1)
     return None
 
 
 async def list_ministries(*, api_key: str, days: int = 3) -> list[str]:
     """최근 보도자료에 등장한 부처 목록 (중복 제거).
 
-    days > 3이면 3일 chunk로 분할 호출 후 부처 병합.
+    days > 3이면 3일 chunk 분할 (옛 로직: 1일 띄움 + 에러 격리).
     """
     if days < 1:
         days = 1
@@ -268,21 +287,22 @@ async def list_ministries(*, api_key: str, days: int = 3) -> list[str]:
         days = 90
 
     today = datetime.now(timezone.utc) + timedelta(hours=9)
+    start_boundary = today - timedelta(days=days)
     ministries = set()
-    remaining = days
     chunk_end = today
-    while remaining > 0:
-        chunk_days = min(3, remaining)
-        chunk_start = chunk_end - timedelta(days=chunk_days)
-        items = await _call_api(
-            api_key,
-            chunk_start.strftime("%Y%m%d"),
-            chunk_end.strftime("%Y%m%d"),
-        )
-        for it in items:
-            m = it.get("ministry", "").strip()
-            if m:
-                ministries.add(m)
-        remaining -= chunk_days
-        chunk_end = chunk_start
+    while chunk_end > start_boundary:
+        chunk_start = max(start_boundary, chunk_end - timedelta(days=3))
+        try:
+            items = await _call_api(
+                api_key,
+                chunk_start.strftime("%Y%m%d"),
+                chunk_end.strftime("%Y%m%d"),
+            )
+            for it in items:
+                m = it.get("ministry", "").strip()
+                if m:
+                    ministries.add(m)
+        except Exception as e:
+            log.warning(f"ministries chunk 실패: {e}")
+        chunk_end = chunk_start - timedelta(days=1)
     return sorted(ministries)
