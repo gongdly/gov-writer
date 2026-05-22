@@ -147,25 +147,44 @@ async def search_press_releases(
 ) -> list[dict]:
     """보도자료 검색.
 
-    1. 최근 N일치 (기본 3일) 전체 fetch
-    2. query·ministry로 클라이언트 사이드 필터
-    3. 본문은 500자 미리보기로 잘라서 반환
+    정책브리핑 API는 한 번에 최대 3일 조회만 허용하므로,
+    days > 3이면 3일 단위로 chunk 분할하여 여러 번 호출 후 결과 병합.
 
     Args:
         api_key: POLICY_BRIEFING_API_KEY
         query: 키워드 (제목·본문 매칭)
-        ministry: 부처 필터 ("행안부" 같은 약칭도 자동 정규화)
-        days: 조회 기간 (최대 3일)
+        ministry: 부처 필터
+        days: 조회 기간 (1~90, 3 초과 시 자동 chunking)
         limit: 최대 반환 건수
     """
-    if days > 3:
-        days = 3
+    if days < 1:
+        days = 1
+    if days > 90:
+        days = 90
 
     today = datetime.now(timezone.utc) + timedelta(hours=9)  # KST
-    start = (today - timedelta(days=days)).strftime("%Y%m%d")
-    end = today.strftime("%Y%m%d")
 
-    items = await _call_api(api_key, start, end)
+    # 3일씩 chunk 분할: 가장 최근 chunk부터 거꾸로 호출
+    items: list[dict] = []
+    seen_ids: set[str] = set()
+    remaining = days
+    chunk_end = today
+    while remaining > 0:
+        chunk_days = min(3, remaining)
+        chunk_start = chunk_end - timedelta(days=chunk_days)
+        start_str = chunk_start.strftime("%Y%m%d")
+        end_str = chunk_end.strftime("%Y%m%d")
+
+        chunk_items = await _call_api(api_key, start_str, end_str)
+        # 중복 제거 (chunk 경계 겹침 방지)
+        for it in chunk_items:
+            nid = it.get("news_item_id")
+            if nid and nid not in seen_ids:
+                items.append(it)
+                seen_ids.add(nid)
+
+        remaining -= chunk_days
+        chunk_end = chunk_start
 
     # 부처 필터
     if ministry:
